@@ -102,6 +102,18 @@ export interface FileTreeEvent {
   parentNode: FileTreeNodeData | null;
   /** Full snapshot of the current flat data array. */
   tree: FileTreeNodeData[];
+  /**
+   * Whether `preventDefault()` has been called on this event.
+   * Only checked for certain event types (currently `delete`).
+   */
+  defaultPrevented: boolean;
+  /**
+   * Call to cancel the default behavior associated with this event.
+   * For `delete` events this prevents the node from being removed,
+   * allowing the consumer to show a confirmation dialog and later
+   * call `removeNode()` programmatically.
+   */
+  preventDefault: () => void;
 }
 
 export type EventHandler = (event: FileTreeEvent) => void;

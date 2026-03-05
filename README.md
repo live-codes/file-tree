@@ -32,8 +32,12 @@ const tree = new FileTree("#container", {
 // Listen to events
 tree.on("select", (e) => console.log("Selected:", e.path));
 tree.on("rename", (e) => console.log("Renamed:", e.oldPath, "->", e.path));
-tree.on("delete", (e) => console.log("Deleted:", e.path));
 tree.on("move", (e) => console.log("Moved:", e.oldPath, "->", e.path));
+tree.on("delete", (e) => {
+  e.preventDefault();
+  const confirmed = confirm(`Delete "${e.path}"?`);
+  if (confirmed) tree.removeNode(e.path);
+});
 tree.on("change", (e) => console.log("Tree changed:", e.tree));
 ```
 

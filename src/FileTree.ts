@@ -616,6 +616,7 @@ export class FileTree {
           this.renamingPath = null;
           this.fullRerender();
           this.selectNode(newPath);
+          this.root.focus();
           this.emitEvent("create", newPath);
           this.emitChange();
         } else {
@@ -627,6 +628,7 @@ export class FileTree {
           this.renamingPath = null;
           this.fullRerender();
           this.selectNode(newPath);
+          this.root.focus();
           this.emitEvent("rename", newPath, oldPath);
           this.emitChange();
         }
@@ -669,6 +671,7 @@ export class FileTree {
         .get(this.selectedPath)
         ?.contentEl.classList.add("ft-node__content--selected");
     }
+    this.root.focus();
   }
 
   private cancelRename(): void {
@@ -736,9 +739,16 @@ export class FileTree {
 
   // ── Delete ──────────────────────────────────────────────
 
+  /**
+   * Attempt to delete a node. Emits a `delete` event *before* removal.
+   * If a listener calls `event.preventDefault()`, the node is **not**
+   * removed, giving the consumer the chance to show a confirmation
+   * dialog and later call `removeNode()` to carry out the deletion.
+   */
   deleteNode(path: string): void {
     const p = normalizePath(path);
-    this.emitEvent("delete", p);
+    const event = this.emitEvent("delete", p);
+    if (event.defaultPrevented) return;
     this.removeNodeInternal(p);
     this.emitChange();
   }
@@ -1016,10 +1026,6 @@ export class FileTree {
 
   // ── Expand Ancestors ────────────────────────────────────
 
-  /**
-   * Expand every ancestor folder of a given path.
-   * E.g. for "src/utils/helpers.ts", expands "src" and "src/utils".
-   */
   private expandAncestors(path: string): void {
     const segments = path.split("/");
     for (let i = 1; i < segments.length; i++) {
@@ -1042,14 +1048,14 @@ export class FileTree {
     type: FileTreeEventType,
     path: string,
     oldPath?: string,
-  ): void {
+  ): FileTreeEvent {
     const nodeData = this.data.find((d) => d.path === path);
     const parentPath = getParentPath(path);
     const parentNode = parentPath
       ? (this.data.find((d) => d.path === parentPath) ?? null)
       : null;
 
-    this.emitter.emit(type, {
+    const event: FileTreeEvent = {
       type,
       node: nodeData ? { ...nodeData } : { path, type: "file" },
       path,
@@ -1057,18 +1063,30 @@ export class FileTree {
       parentPath,
       parentNode: parentNode ? { ...parentNode } : null,
       tree: cloneData(this.data),
-    });
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
+
+    this.emitter.emit(type, event);
+    return event;
   }
 
   private emitChange(): void {
-    this.emitter.emit("change", {
+    const event: FileTreeEvent = {
       type: "change",
       node: { path: "", type: "folder" },
       path: "",
       parentPath: "",
       parentNode: null,
       tree: cloneData(this.data),
-    });
+      defaultPrevented: false,
+      preventDefault() {
+        this.defaultPrevented = true;
+      },
+    };
+    this.emitter.emit("change", event);
   }
 
   // ── Public API: Data ────────────────────────────────────
@@ -1114,8 +1132,16 @@ export class FileTree {
     this.emitChange();
   }
 
+  /**
+   * Programmatically remove a node and its descendants.
+   * Unlike the UI-triggered `deleteNode`, this is **not cancellable** —
+   * it always removes the node immediately. Use this from your
+   * confirmation callback after intercepting a `delete` event.
+   */
   removeNode(path: string): void {
-    this.deleteNode(path);
+    const p = normalizePath(path);
+    this.removeNodeInternal(p);
+    this.emitChange();
   }
 
   renameNode(path: string, newName: string): void {
@@ -1144,12 +1170,10 @@ export class FileTree {
     this.moveNodeInternal(src, tgt);
   }
 
-  /** Programmatically select a node, auto-expanding all ancestor folders. */
   select(path: string): void {
     const p = normalizePath(path);
     if (!this.nodeMap.has(p)) return;
 
-    // Expand all ancestor folders so the node is visible
     this.expandAncestors(p);
 
     this.selectNode(p);
