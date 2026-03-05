@@ -54,6 +54,8 @@ export type Direction = "ltr" | "rtl";
 export interface FileTreeOptions {
   /** Initial tree data (flat array). Parent folders are auto-created from paths. */
   data?: FileTreeNodeData[];
+  /** Path of the initially selected node. Parent folders are auto-expanded. */
+  selected?: string;
   /** Color theme. Default: `'dark'`. */
   theme?: Theme;
   /** Text direction. Default: `'ltr'`. */

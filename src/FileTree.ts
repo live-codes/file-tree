@@ -44,6 +44,7 @@ import type {
 
 const DEFAULT_OPTIONS: Required<FileTreeOptions> = {
   data: [],
+  selected: "",
   theme: "dark",
   direction: "ltr",
   indent: 16,
@@ -141,6 +142,11 @@ export class FileTree {
     // Render tree
     this.renderTree();
 
+    // Apply initial selection (expands parents automatically)
+    if (this.options.selected) {
+      this.select(this.options.selected);
+    }
+
     // Keyboard
     this.root.addEventListener("keydown", this.onKeydown.bind(this));
   }
@@ -151,6 +157,7 @@ export class FileTree {
     if (!opts) return { ...DEFAULT_OPTIONS };
     return {
       data: opts.data ?? DEFAULT_OPTIONS.data,
+      selected: opts.selected ?? DEFAULT_OPTIONS.selected,
       theme: opts.theme ?? DEFAULT_OPTIONS.theme,
       direction: opts.direction ?? DEFAULT_OPTIONS.direction,
       indent: opts.indent ?? DEFAULT_OPTIONS.indent,
@@ -650,7 +657,7 @@ export class FileTree {
 
   private handleRenameCancel(path: string): void {
     if (this.pendingNewNodePath === path) {
-      // Remove the pending new node and its auto-created empty parents
+      // Remove the pending new node
       this.data = this.data.filter((d) => d.path !== path);
       this.pendingNewNodePath = null;
     }
@@ -768,10 +775,7 @@ export class FileTree {
     targetPath: string,
     position: DropPosition,
   ): void {
-    // Prevent self-move
     if (sourcePath === targetPath) return;
-
-    // Prevent moving into own descendants
     if (isDescendant(sourcePath, targetPath)) return;
 
     const targetData = this.data.find((d) => d.path === targetPath);
@@ -793,22 +797,17 @@ export class FileTree {
       ? `${newParentPath}/${sourceName}`
       : sourceName;
 
-    if (sourcePath === newPath) return; // No change
-
-    // Check for name conflict
+    if (sourcePath === newPath) return;
     if (this.data.some((d) => d.path === newPath)) return;
 
     const oldPath = sourcePath;
 
-    // Update all paths (node + descendants)
     updatePathsInData(this.data, sourcePath, newPath);
     updatePathsInSet(this.expandedNodes, sourcePath, newPath);
     this.updateSelectedPath(sourcePath, newPath);
 
-    // Ensure parent folders exist
     this.data = normalizeData(this.data);
 
-    // Expand target parent
     if (newParentPath) this.expandedNodes.add(newParentPath);
 
     this.fullRerender();
@@ -837,7 +836,6 @@ export class FileTree {
       const f = files[i];
       let filePath = parentPath ? `${parentPath}/${f.name}` : f.name;
 
-      // Handle conflicts
       let counter = 1;
       while (this.data.some((d) => d.path === filePath)) {
         const ext = getExtension(f.name);
@@ -868,7 +866,6 @@ export class FileTree {
   // ── Full Rerender ───────────────────────────────────────
 
   private fullRerender(): void {
-    // Preserve expanded state (already in this.expandedNodes)
     this.renderTree();
 
     // Restore expanded state from set
@@ -924,7 +921,6 @@ export class FileTree {
             if (!this.expandedNodes.has(this.selectedPath)) {
               this.expand(this.selectedPath);
             } else {
-              // Move to first child
               const children = this.getChildPaths(this.selectedPath);
               if (children.length > 0) {
                 this.selectNode(children[0]);
@@ -1018,6 +1014,20 @@ export class FileTree {
     node?.contentEl.scrollIntoView({ block: "nearest" });
   }
 
+  // ── Expand Ancestors ────────────────────────────────────
+
+  /**
+   * Expand every ancestor folder of a given path.
+   * E.g. for "src/utils/helpers.ts", expands "src" and "src/utils".
+   */
+  private expandAncestors(path: string): void {
+    const segments = path.split("/");
+    for (let i = 1; i < segments.length; i++) {
+      const ancestorPath = segments.slice(0, i).join("/");
+      this.expand(ancestorPath);
+    }
+  }
+
   // ── Events ──────────────────────────────────────────────
 
   on(event: FileTreeEventType, handler: EventHandler): void {
@@ -1063,25 +1073,21 @@ export class FileTree {
 
   // ── Public API: Data ────────────────────────────────────
 
-  /** Get a deep clone of the current flat data array. */
   getData(): FileTreeNodeData[] {
     return cloneData(this.data);
   }
 
-  /** Get a single node by path. */
   getNode(path: string): FileTreeNodeData | undefined {
     const p = normalizePath(path);
     const item = this.data.find((d) => d.path === p);
     return item ? { ...item } : undefined;
   }
 
-  /** Get the currently selected node, or null. */
   getSelectedNode(): FileTreeNodeData | null {
     if (!this.selectedPath) return null;
     return this.getNode(this.selectedPath) ?? null;
   }
 
-  /** Replace the entire tree data and re-render. */
   setData(data: FileTreeNodeData[]): void {
     this.data = normalizeData(data);
     this.selectedPath = null;
@@ -1091,15 +1097,9 @@ export class FileTree {
 
   // ── Public API: Node Operations ─────────────────────────
 
-  /**
-   * Add a node to the tree. Parent folders are auto-created from the path.
-   * To add multiple nodes at once, use `setData` or call `addNode` in a loop.
-   */
   addNode(node: FileTreeNodeData): void {
     const normalized = { ...node, path: normalizePath(node.path) };
     if (!normalized.path) return;
-
-    // Don't add if already exists
     if (this.data.some((d) => d.path === normalized.path)) return;
 
     this.data.push(normalized);
@@ -1107,7 +1107,6 @@ export class FileTree {
 
     this.fullRerender();
 
-    // Expand parent
     const parentPath = getParentPath(normalized.path);
     if (parentPath) this.expand(parentPath);
 
@@ -1115,12 +1114,10 @@ export class FileTree {
     this.emitChange();
   }
 
-  /** Remove a node (and all descendants if it is a folder). */
   removeNode(path: string): void {
     this.deleteNode(path);
   }
 
-  /** Rename a node. Only changes the last segment (name) of the path. */
   renameNode(path: string, newName: string): void {
     const p = normalizePath(path);
     if (!this.isValidName(newName)) return;
@@ -1129,7 +1126,7 @@ export class FileTree {
     const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
     if (newPath === p) return;
-    if (this.data.some((d) => d.path === newPath)) return; // Conflict
+    if (this.data.some((d) => d.path === newPath)) return;
 
     updatePathsInData(this.data, p, newPath);
     updatePathsInSet(this.expandedNodes, p, newPath);
@@ -1141,22 +1138,22 @@ export class FileTree {
     this.emitChange();
   }
 
-  /**
-   * Move a node to a new parent folder.
-   * Pass empty string or `null` for `targetParentPath` to move to root.
-   */
   moveNode(sourcePath: string, targetParentPath: string | null): void {
     const src = normalizePath(sourcePath);
     const tgt = targetParentPath ? normalizePath(targetParentPath) : "";
     this.moveNodeInternal(src, tgt);
   }
 
-  /** Programmatically select a node. */
+  /** Programmatically select a node, auto-expanding all ancestor folders. */
   select(path: string): void {
     const p = normalizePath(path);
-    if (this.nodeMap.has(p)) {
-      this.selectNode(p);
-    }
+    if (!this.nodeMap.has(p)) return;
+
+    // Expand all ancestor folders so the node is visible
+    this.expandAncestors(p);
+
+    this.selectNode(p);
+    this.scrollIntoView(p);
   }
 
   // ── Theme & Direction ───────────────────────────────────

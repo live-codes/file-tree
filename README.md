@@ -24,6 +24,7 @@ const tree = new FileTree("#container", {
     { path: "package.json", type: "file" },
     { path: "README.md", type: "file" },
   ],
+  selected: "src/index.ts",
   theme: "dark",
   direction: "ltr",
 });
@@ -106,6 +107,7 @@ const tree = new FileTree("#container", {
 | Option        | Type                          | Default   | Description                              |
 | ------------- | ----------------------------- | --------- | ---------------------------------------- |
 | `data`        | `FileTreeNodeData[]`          | `[]`      | Initial flat data array                  |
+| `selected`    | `string`                      | `''`      | Path of the initially selected node      |
 | `theme`       | `'light' \| 'dark'`           | `'dark'`  | Color theme                              |
 | `direction`   | `'ltr' \| 'rtl'`              | `'ltr'`   | Text direction                           |
 | `indent`      | `number`                      | `16`      | Pixels per indentation level             |
