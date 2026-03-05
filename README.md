@@ -270,7 +270,7 @@ All visual properties are controlled by CSS custom properties. Override them on 
 }
 ```
 
-### Integration with LiveCodes / Custom Apps
+### Integration with Custom Apps
 
 Map the file tree variables to your app's existing CSS variables:
 
