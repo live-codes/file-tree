@@ -1,0 +1,64 @@
+{
+  "name": "@live-codes/file-tree",
+  "version": "1.0.0",
+  "description": "A zero-dependency, framework-agnostic file tree component with drag-and-drop, context menus, theming, and RTL support.",
+  "author": "",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./styles.css": "./dist/styles.css",
+    "./dist/styles.css": "./dist/styles.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": [
+    "**/*.css"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "25.3.3",
+    "@typescript-eslint/eslint-plugin": "8.56.1",
+    "@typescript-eslint/parser": "8.56.1",
+    "eslint": "10.0.2",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3"
+  },
+  "keywords": [
+    "file-tree",
+    "tree-view",
+    "file-explorer",
+    "treeview",
+    "drag-and-drop",
+    "vanilla",
+    "typescript",
+    "no-dependencies"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/live-codes/file-tree.git"
+  },
+  "bugs": {
+    "url": "https://github.com/live-codes/file-tree/issues"
+  },
+  "homepage": "https://github.com/live-codes/file-tree#readme"
+}

@@ -1,0 +1,10 @@
+src/
+.github/
+tsconfig.json
+tsup.config.ts
+.gitignore
+.eslintrc*
+*.log
+coverage/
+.idea/
+.vscode/
