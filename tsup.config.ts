@@ -1,4 +1,3 @@
-import fs from "node:fs/promises";
 import { defineConfig } from "tsup";
 
 export default defineConfig({
@@ -18,8 +17,6 @@ export default defineConfig({
       ".css": "copy",
     };
   },
-  async onSuccess() {
-    const styles = await fs.readFile("src/styles.css", "utf-8");
-    await fs.writeFile("dist/styles.css", styles);
-  },
+  onSuccess:
+    "npx lightningcss --minify --bundle src/styles.css -o dist/styles.css",
 });
