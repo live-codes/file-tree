@@ -1,13 +1,9 @@
 /** Data structure representing a single node in the file tree. */
 export interface FileTreeNodeData {
-  /** Unique identifier. Auto-generated if omitted when using `createNode()`. */
-  id: string;
-  /** Display name of the file or folder. */
-  name: string;
+  /** Path of the file or folder (e.g. "src/utils/helpers.ts"). */
+  path: string;
   /** Whether this node is a file or folder. */
   type: "file" | "folder";
-  /** Child nodes (only meaningful for folders). */
-  children?: FileTreeNodeData[];
   /** Optional custom SVG string to override the default icon. */
   icon?: string;
   /** Arbitrary user data attached to this node. */
@@ -31,7 +27,7 @@ export interface ContextMenuItem {
   shortcut?: string;
   /** Whether this item should appear for a given node. Defaults to always visible. */
   visible?: (node: FileTreeNodeData) => boolean;
-  onClick: (node: FileTreeNodeData, path: string) => void;
+  onClick: (node: FileTreeNodeData) => void;
 }
 
 export interface ToolbarOptions {
@@ -56,7 +52,7 @@ export type Direction = "ltr" | "rtl";
 
 /** Options passed to the FileTree constructor. */
 export interface FileTreeOptions {
-  /** Initial tree data. */
+  /** Initial tree data (flat array). Parent folders are auto-created from paths. */
   data?: FileTreeNodeData[];
   /** Color theme. Default: `'dark'`. */
   theme?: Theme;
@@ -94,22 +90,34 @@ export interface FileTreeEvent {
   type: FileTreeEventType;
   /** The node involved in this event. */
   node: FileTreeNodeData;
-  /** Full path of the node (e.g. `"src/utils/helpers.ts"`). */
+  /** Full path of the node. Same as `node.path`. */
   path: string;
   /** Previous path, for rename and move events. */
   oldPath?: string;
-  /** Parent node, or `null` for root-level nodes. */
+  /** Parent folder path. Empty string for root-level nodes. */
+  parentPath: string;
+  /** Parent node data, or `null` for root-level nodes. */
   parentNode: FileTreeNodeData | null;
-  /** Full snapshot of the current tree data. */
+  /** Full snapshot of the current flat data array. */
   tree: FileTreeNodeData[];
 }
 
 export type EventHandler = (event: FileTreeEvent) => void;
 
-/** Internal representation of a rendered node. */
+/** Hierarchical node used internally for rendering the flat data as a tree. */
+export interface HierarchyNode {
+  name: string;
+  path: string;
+  type: "file" | "folder";
+  data: FileTreeNodeData;
+  children: HierarchyNode[];
+}
+
+/** Internal representation of a rendered DOM node. */
 export interface InternalNode {
-  id: string;
-  parentId: string | null;
+  path: string;
+  parentPath: string;
+  name: string;
   data: FileTreeNodeData;
   depth: number;
   expanded: boolean;

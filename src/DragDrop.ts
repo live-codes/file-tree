@@ -2,23 +2,22 @@ import type { InternalNode } from "./types";
 
 export type DropPosition = "before" | "inside" | "after";
 
-export interface DropInfo {
-  targetId: string;
-  position: DropPosition;
-}
-
 export interface DragDropCallbacks {
-  getNode: (id: string) => InternalNode | undefined;
-  onMove: (sourceId: string, targetId: string, position: DropPosition) => void;
+  getNode: (path: string) => InternalNode | undefined;
+  onMove: (
+    sourcePath: string,
+    targetPath: string,
+    position: DropPosition,
+  ) => void;
   onExternalDrop: (
     files: FileList,
-    targetId: string | null,
+    targetPath: string | null,
     position: DropPosition,
   ) => void;
 }
 
 export class DragDrop {
-  private draggedId: string | null = null;
+  private draggedPath: string | null = null;
   private currentDropTarget: HTMLElement | null = null;
   private dropIndicator: HTMLElement;
   private dropPosition: DropPosition = "inside";
@@ -53,15 +52,14 @@ export class DragDrop {
       ".ft-node",
     ) as HTMLElement | null;
     if (!nodeEl) return;
-    const id = nodeEl.dataset.id;
-    if (!id) return;
+    const path = nodeEl.dataset.path;
+    if (!path) return;
 
-    this.draggedId = id;
+    this.draggedPath = path;
     e.dataTransfer!.effectAllowed = "move";
-    e.dataTransfer!.setData("text/plain", id);
+    e.dataTransfer!.setData("text/plain", path);
     nodeEl.classList.add("ft-node--dragging");
 
-    // Use a transparent drag image to rely on our own indicators
     requestAnimationFrame(() => {
       nodeEl.style.opacity = "0.4";
     });
@@ -80,11 +78,11 @@ export class DragDrop {
     }
 
     const nodeEl = contentEl.closest(".ft-node") as HTMLElement;
-    const id = nodeEl?.dataset.id;
-    if (!id) return;
+    const path = nodeEl?.dataset.path;
+    if (!path) return;
 
     // Don't drop on self
-    if (id === this.draggedId) {
+    if (path === this.draggedPath) {
       this.clearDropTarget();
       return;
     }
@@ -92,7 +90,7 @@ export class DragDrop {
     const rect = contentEl.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const ratio = y / rect.height;
-    const nodeData = this.callbacks.getNode(id);
+    const nodeData = this.callbacks.getNode(path);
     if (!nodeData) return;
 
     let position: DropPosition;
@@ -104,12 +102,11 @@ export class DragDrop {
       position = ratio < 0.5 ? "before" : "after";
     }
 
-    this.setDropTarget(contentEl, nodeEl, position, rect);
+    this.setDropTarget(contentEl, position, rect);
   }
 
   private setDropTarget(
     contentEl: HTMLElement,
-    nodeEl: HTMLElement,
     position: DropPosition,
     rect: DOMRect,
   ): void {
@@ -177,8 +174,8 @@ export class DragDrop {
     if (!targetContentEl) return;
 
     const targetNodeEl = targetContentEl.closest(".ft-node") as HTMLElement;
-    const targetId = targetNodeEl?.dataset.id;
-    if (!targetId) return;
+    const targetPath = targetNodeEl?.dataset.path;
+    if (!targetPath) return;
 
     const position = this.dropPosition;
     this.clearDropTarget();
@@ -187,14 +184,14 @@ export class DragDrop {
     if (
       e.dataTransfer?.files &&
       e.dataTransfer.files.length > 0 &&
-      !this.draggedId
+      !this.draggedPath
     ) {
-      this.callbacks.onExternalDrop(e.dataTransfer.files, targetId, position);
+      this.callbacks.onExternalDrop(e.dataTransfer.files, targetPath, position);
       return;
     }
 
-    if (this.draggedId && this.draggedId !== targetId) {
-      this.callbacks.onMove(this.draggedId, targetId, position);
+    if (this.draggedPath && this.draggedPath !== targetPath) {
+      this.callbacks.onMove(this.draggedPath, targetPath, position);
     }
 
     this.cleanup();
@@ -212,7 +209,7 @@ export class DragDrop {
       dragging.classList.remove("ft-node--dragging");
       dragging.style.opacity = "";
     }
-    this.draggedId = null;
+    this.draggedPath = null;
     this.clearDropTarget();
   }
 

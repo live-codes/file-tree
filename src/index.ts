@@ -1,5 +1,11 @@
 export { FileTree } from "./FileTree";
-export { createNode, generateId } from "./utils";
+export {
+  createNode,
+  normalizePath,
+  getName,
+  getParentPath,
+  getExtension,
+} from "./utils";
 
 export type {
   FileTreeNodeData,

@@ -17,14 +17,15 @@ import {
   defaultNameIconMap,
 } from "./icons";
 import {
-  generateId,
+  normalizePath,
+  getParentPath,
+  getName,
   getExtension,
-  deepClone,
-  findNode,
-  removeNode,
-  getNodePath,
-  defaultSort,
-  sortTree,
+  normalizeData,
+  buildHierarchy,
+  cloneData,
+  updatePathsInData,
+  updatePathsInSet,
   isDescendant,
 } from "./utils";
 import type {
@@ -34,6 +35,7 @@ import type {
   FileTreeEventType,
   EventHandler,
   InternalNode,
+  HierarchyNode,
   Theme,
   Direction,
   ToolbarOptions,
@@ -72,10 +74,11 @@ export class FileTree {
   private toolbarEl: HTMLElement | null = null;
   private treeEl: HTMLElement;
   private data: FileTreeNodeData[];
+  private hierarchy: HierarchyNode[] = [];
   private options: Required<FileTreeOptions>;
   private nodeMap = new Map<string, InternalNode>();
   private expandedNodes = new Set<string>();
-  private selectedId: string | null = null;
+  private selectedPath: string | null = null;
   private emitter = new EventEmitter<
     Record<FileTreeEventType, FileTreeEvent>
   >();
@@ -83,8 +86,8 @@ export class FileTree {
   private dragDrop: DragDrop | null = null;
   private iconMap: Record<string, string>;
   private nameIconMap: Record<string, string>;
-  private renamingId: string | null = null;
-  private pendingNewNodeId: string | null = null;
+  private renamingPath: string | null = null;
+  private pendingNewNodePath: string | null = null;
 
   // ── Constructor ─────────────────────────────────────────
 
@@ -94,21 +97,13 @@ export class FileTree {
         ? document.querySelector(container)
         : container;
     if (!el || !(el instanceof HTMLElement)) {
-      throw new Error("[file-tree] Invalid container element.");
+      throw new Error("[file-tree-js] Invalid container element.");
     }
 
     this.options = this.mergeOptions(options);
-    this.data = deepClone(this.options.data);
+    this.data = normalizeData(this.options.data);
     this.iconMap = { ...defaultIconMap, ...this.options.icons };
     this.nameIconMap = { ...defaultNameIconMap };
-
-    if (this.options.sort) {
-      const cmp =
-        typeof this.options.sort === "function"
-          ? this.options.sort
-          : defaultSort;
-      sortTree(this.data, cmp);
-    }
 
     // Root element
     this.root = document.createElement("div");
@@ -136,10 +131,10 @@ export class FileTree {
     // Drag & drop
     if (this.options.dragAndDrop) {
       this.dragDrop = new DragDrop(this.treeEl, {
-        getNode: (id) => this.nodeMap.get(id),
-        onMove: (srcId, tgtId, pos) => this.handleDragMove(srcId, tgtId, pos),
-        onExternalDrop: (files, tgtId, pos) =>
-          this.handleExternalDrop(files, tgtId, pos),
+        getNode: (path) => this.nodeMap.get(path),
+        onMove: (src, tgt, pos) => this.handleDragMove(src, tgt, pos),
+        onExternalDrop: (files, tgt, pos) =>
+          this.handleExternalDrop(files, tgt, pos),
       });
     }
 
@@ -255,25 +250,26 @@ export class FileTree {
   private renderTree(): void {
     this.treeEl.innerHTML = "";
     this.nodeMap.clear();
-    for (const node of this.data) {
-      this.renderNode(node, 0, null, this.treeEl);
+    this.hierarchy = buildHierarchy(this.data, this.options.sort);
+    for (const hNode of this.hierarchy) {
+      this.renderNode(hNode, 0, "", this.treeEl);
     }
   }
 
   private renderNode(
-    data: FileTreeNodeData,
+    hNode: HierarchyNode,
     depth: number,
-    parentId: string | null,
+    parentPath: string,
     container: HTMLElement,
   ): void {
-    const isFolder = data.type === "folder";
-    const expanded = this.expandedNodes.has(data.id);
+    const isFolder = hNode.type === "folder";
+    const expanded = this.expandedNodes.has(hNode.path);
 
     // Node wrapper
     const el = document.createElement("div");
     el.className = "ft-node";
-    el.dataset.id = data.id;
-    el.dataset.type = data.type;
+    el.dataset.path = hNode.path;
+    el.dataset.type = hNode.type;
     el.setAttribute("role", "treeitem");
     if (this.options.dragAndDrop) el.draggable = true;
 
@@ -299,13 +295,13 @@ export class FileTree {
     // Icon
     const iconEl = document.createElement("span");
     iconEl.className = "ft-node__icon";
-    iconEl.innerHTML = this.resolveIcon(data, expanded);
+    iconEl.innerHTML = this.resolveIcon(hNode.data, hNode.name, expanded);
     contentEl.appendChild(iconEl);
 
     // Name
     const nameEl = document.createElement("span");
     nameEl.className = "ft-node__name";
-    nameEl.textContent = data.name;
+    nameEl.textContent = hNode.name;
     contentEl.appendChild(nameEl);
 
     el.appendChild(contentEl);
@@ -318,18 +314,17 @@ export class FileTree {
       if (!expanded) childrenEl.style.display = "none";
       el.appendChild(childrenEl);
 
-      if (data.children) {
-        for (const child of data.children) {
-          this.renderNode(child, depth + 1, data.id, childrenEl);
-        }
+      for (const child of hNode.children) {
+        this.renderNode(child, depth + 1, hNode.path, childrenEl);
       }
     }
 
     // Store internal reference
     const internalNode: InternalNode = {
-      id: data.id,
-      parentId,
-      data,
+      path: hNode.path,
+      parentPath,
+      name: hNode.name,
+      data: hNode.data,
       depth,
       expanded,
       el,
@@ -339,32 +334,34 @@ export class FileTree {
       arrowEl,
       iconEl,
     };
-    this.nodeMap.set(data.id, internalNode);
+    this.nodeMap.set(hNode.path, internalNode);
 
     // Events
+    const nodePath = hNode.path;
+
     contentEl.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (this.renamingId) return;
-      this.selectNode(data.id);
-      if (isFolder) this.toggleExpand(data.id);
+      if (this.renamingPath) return;
+      this.selectNode(nodePath);
+      if (isFolder) this.toggleExpand(nodePath);
     });
 
     contentEl.addEventListener("dblclick", (e) => {
       e.stopPropagation();
-      if (this.renamingId) return;
+      if (this.renamingPath) return;
       if (
         this.options.contextMenu !== false &&
         (this.options.contextMenu as ContextMenuOptions).rename
       ) {
-        this.startRename(data.id);
+        this.startRename(nodePath);
       }
     });
 
     contentEl.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.selectNode(data.id);
-      this.showContextMenu(data.id, e.clientX, e.clientY);
+      this.selectNode(nodePath);
+      this.showContextMenu(nodePath, e.clientX, e.clientY);
     });
 
     container.appendChild(el);
@@ -372,15 +369,19 @@ export class FileTree {
 
   // ── Icon Resolution ─────────────────────────────────────
 
-  private resolveIcon(data: FileTreeNodeData, expanded: boolean): string {
+  private resolveIcon(
+    data: FileTreeNodeData,
+    name: string,
+    expanded: boolean,
+  ): string {
     if (data.icon) return data.icon;
     if (data.type === "folder") return expanded ? folderOpen : folder;
 
     // Check name-based icons
-    if (this.nameIconMap[data.name]) return this.nameIconMap[data.name];
+    if (this.nameIconMap[name]) return this.nameIconMap[name];
 
     // Extension-based
-    const ext = getExtension(data.name);
+    const ext = getExtension(name);
     if (ext && this.iconMap[ext]) return this.iconMap[ext];
 
     return fileIcon;
@@ -388,101 +389,101 @@ export class FileTree {
 
   // ── Selection ───────────────────────────────────────────
 
-  private selectNode(id: string): void {
-    if (this.selectedId) {
-      const prev = this.nodeMap.get(this.selectedId);
+  private selectNode(path: string): void {
+    if (this.selectedPath) {
+      const prev = this.nodeMap.get(this.selectedPath);
       prev?.contentEl.classList.remove("ft-node__content--selected");
     }
-    this.selectedId = id;
-    const node = this.nodeMap.get(id);
+    this.selectedPath = path;
+    const node = this.nodeMap.get(path);
     node?.contentEl.classList.add("ft-node__content--selected");
 
-    this.emitEvent("select", id);
+    this.emitEvent("select", path);
   }
 
   // ── Expand / Collapse ───────────────────────────────────
 
-  private toggleExpand(id: string): void {
-    if (this.expandedNodes.has(id)) {
-      this.collapse(id);
+  private toggleExpand(path: string): void {
+    if (this.expandedNodes.has(path)) {
+      this.collapse(path);
     } else {
-      this.expand(id);
+      this.expand(path);
     }
   }
 
-  expand(id: string): void {
-    const node = this.nodeMap.get(id);
+  expand(path: string): void {
+    const p = normalizePath(path);
+    const node = this.nodeMap.get(p);
     if (!node || node.data.type !== "folder") return;
-    if (this.expandedNodes.has(id)) return;
+    if (this.expandedNodes.has(p)) return;
 
-    this.expandedNodes.add(id);
+    this.expandedNodes.add(p);
     node.expanded = true;
     node.arrowEl?.classList.add("ft-node__arrow--open");
     if (node.childrenEl) node.childrenEl.style.display = "";
-    node.iconEl.innerHTML = this.resolveIcon(node.data, true);
+    node.iconEl.innerHTML = this.resolveIcon(node.data, node.name, true);
 
-    this.emitEvent("expand", id);
+    this.emitEvent("expand", p);
   }
 
-  collapse(id: string): void {
-    const node = this.nodeMap.get(id);
+  collapse(path: string): void {
+    const p = normalizePath(path);
+    const node = this.nodeMap.get(p);
     if (!node || node.data.type !== "folder") return;
-    if (!this.expandedNodes.has(id)) return;
+    if (!this.expandedNodes.has(p)) return;
 
-    this.expandedNodes.delete(id);
+    this.expandedNodes.delete(p);
     node.expanded = false;
     node.arrowEl?.classList.remove("ft-node__arrow--open");
     if (node.childrenEl) node.childrenEl.style.display = "none";
-    node.iconEl.innerHTML = this.resolveIcon(node.data, false);
+    node.iconEl.innerHTML = this.resolveIcon(node.data, node.name, false);
 
-    this.emitEvent("collapse", id);
+    this.emitEvent("collapse", p);
   }
 
   expandAll(): void {
     this.nodeMap.forEach((node) => {
-      if (node.data.type === "folder") this.expand(node.id);
+      if (node.data.type === "folder") this.expand(node.path);
     });
   }
 
   collapseAll(): void {
     this.nodeMap.forEach((node) => {
-      if (node.data.type === "folder") this.collapse(node.id);
+      if (node.data.type === "folder") this.collapse(node.path);
     });
   }
 
   // ── Context Menu ────────────────────────────────────────
 
-  private showContextMenu(id: string, x: number, y: number): void {
+  private showContextMenu(path: string, x: number, y: number): void {
     if (this.options.contextMenu === false) return;
     const cfg = this.options.contextMenu as ContextMenuOptions;
-    const node = this.nodeMap.get(id);
-    if (!node) return;
+    const nodeData = this.data.find((d) => d.path === path);
+    if (!nodeData) return;
 
     const entries: ContextMenuEntry[] = [];
-    const data = node.data;
-    const path = getNodePath(this.data, id);
 
-    if (data.type === "folder" && cfg.createFile) {
+    if (nodeData.type === "folder" && cfg.createFile) {
       entries.push({
         id: "create-file",
         label: "New File",
         icon: newFile,
-        onClick: () => this.createNewNode("file", id),
+        onClick: () => this.createNewNode("file", path),
       });
     }
 
-    if (data.type === "folder" && cfg.createFolder) {
+    if (nodeData.type === "folder" && cfg.createFolder) {
       entries.push({
         id: "create-folder",
         label: "New Folder",
         icon: newFolder,
-        onClick: () => this.createNewNode("folder", id),
+        onClick: () => this.createNewNode("folder", path),
       });
     }
 
     if (
       (cfg.createFile || cfg.createFolder) &&
-      data.type === "folder" &&
+      nodeData.type === "folder" &&
       (cfg.rename || cfg.delete || cfg.copy)
     ) {
       entries.push({
@@ -510,7 +511,7 @@ export class FileTree {
         label: "Rename",
         icon: editIcon,
         shortcut: "F2",
-        onClick: () => this.startRename(id),
+        onClick: () => this.startRename(path),
       });
     }
 
@@ -520,13 +521,13 @@ export class FileTree {
         label: "Delete",
         icon: trashIcon,
         shortcut: "Del",
-        onClick: () => this.deleteNode(id),
+        onClick: () => this.deleteNode(path),
       });
     }
 
     if (cfg.custom && cfg.custom.length > 0) {
       const visibleCustom = cfg.custom.filter(
-        (c) => !c.visible || c.visible(data),
+        (c) => !c.visible || c.visible(nodeData),
       );
       if (visibleCustom.length > 0 && entries.length > 0) {
         entries.push({
@@ -542,7 +543,7 @@ export class FileTree {
           label: c.label,
           icon: c.icon,
           shortcut: c.shortcut,
-          onClick: () => c.onClick(data, path),
+          onClick: () => c.onClick(nodeData),
         });
       }
     }
@@ -556,22 +557,21 @@ export class FileTree {
 
   // ── Rename ──────────────────────────────────────────────
 
-  private startRename(id: string): void {
-    const node = this.nodeMap.get(id);
+  private startRename(path: string): void {
+    const node = this.nodeMap.get(path);
     if (!node) return;
-    if (this.renamingId) this.cancelRename();
+    if (this.renamingPath) this.cancelRename();
 
-    this.renamingId = id;
-    const nameEl = node.nameEl;
-    const currentName = node.data.name;
+    this.renamingPath = path;
+    const currentName = node.name;
 
     const input = document.createElement("input");
     input.className = "ft-rename-input";
     input.type = "text";
     input.value = currentName;
 
-    nameEl.textContent = "";
-    nameEl.appendChild(input);
+    node.nameEl.textContent = "";
+    node.nameEl.appendChild(input);
     input.focus();
 
     // Select name without extension for files
@@ -586,37 +586,45 @@ export class FileTree {
       input.select();
     }
 
-    const commit = () => {
+    const commit = (): void => {
+      if (this.renamingPath !== path) return; // Already handled
+
       const newName = input.value.trim();
       if (newName && newName !== currentName && this.isValidName(newName)) {
-        const oldPath = getNodePath(this.data, id);
-        node.data.name = newName;
-        nameEl.textContent = newName;
+        const parentPath = getParentPath(path);
+        const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
-        // Update icon (extension might have changed)
-        node.iconEl.innerHTML = this.resolveIcon(node.data, node.expanded);
-
-        if (this.options.sort) {
-          this.resortParent(id);
-        }
-
-        this.renamingId = null;
-        this.pendingNewNodeId = null;
-
-        const newPath = getNodePath(this.data, id);
-        this.emitEventFull("rename", id, oldPath, newPath);
-        this.emitChange();
-      } else {
-        // Cancel or invalid: revert
-        if (this.pendingNewNodeId === id) {
-          // Was a new node creation that was cancelled
-          this.removeNodeInternal(id);
-          this.pendingNewNodeId = null;
-          this.renamingId = null;
+        // Check for name conflict
+        if (this.data.some((d) => d.path === newPath && d.path !== path)) {
+          this.handleRenameCancel(path);
           return;
         }
-        nameEl.textContent = currentName;
-        this.renamingId = null;
+
+        if (this.pendingNewNodePath === path) {
+          // Committing a newly created node
+          updatePathsInData(this.data, path, newPath);
+          updatePathsInSet(this.expandedNodes, path, newPath);
+          this.updateSelectedPath(path, newPath);
+          this.pendingNewNodePath = null;
+          this.renamingPath = null;
+          this.fullRerender();
+          this.selectNode(newPath);
+          this.emitEvent("create", newPath);
+          this.emitChange();
+        } else {
+          // Regular rename
+          const oldPath = path;
+          updatePathsInData(this.data, oldPath, newPath);
+          updatePathsInSet(this.expandedNodes, oldPath, newPath);
+          this.updateSelectedPath(oldPath, newPath);
+          this.renamingPath = null;
+          this.fullRerender();
+          this.selectNode(newPath);
+          this.emitEvent("rename", newPath, oldPath);
+          this.emitChange();
+        }
+      } else {
+        this.handleRenameCancel(path);
       }
     };
 
@@ -626,304 +634,272 @@ export class FileTree {
         input.blur();
       } else if (e.key === "Escape") {
         e.preventDefault();
-        // Revert
-        if (this.pendingNewNodeId === id) {
-          this.removeNodeInternal(id);
-          this.pendingNewNodeId = null;
-          this.renamingId = null;
-          return;
-        }
-        nameEl.textContent = currentName;
-        this.renamingId = null;
+        this.renamingPath = path; // Ensure cancel sees the correct path
+        this.handleRenameCancel(path);
       }
     });
 
     input.addEventListener(
       "blur",
       () => {
-        if (this.renamingId === id) commit();
+        if (this.renamingPath === path) commit();
       },
       { once: true },
     );
   }
 
+  private handleRenameCancel(path: string): void {
+    if (this.pendingNewNodePath === path) {
+      // Remove the pending new node and its auto-created empty parents
+      this.data = this.data.filter((d) => d.path !== path);
+      this.pendingNewNodePath = null;
+    }
+    this.renamingPath = null;
+    this.fullRerender();
+    // Restore selection
+    if (this.selectedPath && this.nodeMap.has(this.selectedPath)) {
+      this.nodeMap
+        .get(this.selectedPath)
+        ?.contentEl.classList.add("ft-node__content--selected");
+    }
+  }
+
   private cancelRename(): void {
-    if (!this.renamingId) return;
-    const node = this.nodeMap.get(this.renamingId);
-    if (node) {
-      const input = node.nameEl.querySelector("input");
-      if (input) {
-        node.nameEl.textContent = node.data.name;
-      }
-    }
-    if (this.pendingNewNodeId === this.renamingId) {
-      this.removeNodeInternal(this.renamingId);
-      this.pendingNewNodeId = null;
-    }
-    this.renamingId = null;
+    if (!this.renamingPath) return;
+    this.handleRenameCancel(this.renamingPath);
   }
 
   private isValidName(name: string): boolean {
     return name.length > 0 && !/[/\\]/.test(name);
   }
 
+  private updateSelectedPath(oldPath: string, newPath: string): void {
+    if (this.selectedPath === null) return;
+    if (this.selectedPath === oldPath) {
+      this.selectedPath = newPath;
+    } else if (this.selectedPath.startsWith(oldPath + "/")) {
+      this.selectedPath = newPath + this.selectedPath.slice(oldPath.length);
+    }
+  }
+
   // ── Create ──────────────────────────────────────────────
 
-  private createNewNode(type: "file" | "folder", parentId?: string): void {
-    const id = generateId();
-    const newNode: FileTreeNodeData = {
-      id,
-      name: type === "file" ? "untitled" : "new-folder",
-      type,
-      children: type === "folder" ? [] : undefined,
-    };
+  private createNewNode(
+    type: "file" | "folder",
+    parentFolderPath?: string,
+  ): void {
+    let parentPath = parentFolderPath ?? "";
 
-    let targetParentId: string | null = parentId ?? null;
-
-    // If no parentId given, use selected node's parent folder
-    if (!targetParentId && this.selectedId) {
-      const selNode = this.nodeMap.get(this.selectedId);
-      if (selNode) {
-        targetParentId =
-          selNode.data.type === "folder" ? selNode.id : selNode.parentId;
+    // If no parentPath given, infer from selection
+    if (!parentPath && this.selectedPath) {
+      const selData = this.data.find((d) => d.path === this.selectedPath);
+      if (selData) {
+        parentPath =
+          selData.type === "folder"
+            ? selData.path
+            : getParentPath(selData.path);
       }
     }
 
-    if (targetParentId) {
-      const result = findNode(this.data, targetParentId);
-      if (result) {
-        const [parent] = result;
-        if (parent.type === "folder") {
-          if (!parent.children) parent.children = [];
-          parent.children.push(newNode);
-          this.expand(targetParentId);
+    const tempName = type === "file" ? "untitled" : "new-folder";
+    let finalPath = parentPath ? `${parentPath}/${tempName}` : tempName;
 
-          // Render the new node
-          const parentInternal = this.nodeMap.get(targetParentId);
-          if (parentInternal?.childrenEl) {
-            this.renderNode(
-              newNode,
-              parentInternal.depth + 1,
-              targetParentId,
-              parentInternal.childrenEl,
-            );
-          }
-        }
-      }
-    } else {
-      // Add to root
-      this.data.push(newNode);
-      this.renderNode(newNode, 0, null, this.treeEl);
+    // Handle name conflicts
+    let counter = 1;
+    while (this.data.some((d) => d.path === finalPath)) {
+      finalPath = parentPath
+        ? `${parentPath}/${tempName}-${counter}`
+        : `${tempName}-${counter}`;
+      counter++;
     }
 
-    this.pendingNewNodeId = id;
-    this.selectNode(id);
-    this.startRename(id);
+    const newNode: FileTreeNodeData = { path: finalPath, type };
+    this.data.push(newNode);
+    this.data = normalizeData(this.data);
 
-    this.emitEvent("create", id);
-    this.emitChange();
+    // Expand parent folder
+    if (parentPath) this.expandedNodes.add(parentPath);
+
+    this.fullRerender();
+    this.selectNode(finalPath);
+
+    this.pendingNewNodePath = finalPath;
+    this.startRename(finalPath);
   }
 
   // ── Delete ──────────────────────────────────────────────
 
-  deleteNode(id: string): void {
-    this.emitEvent("delete", id);
-    this.removeNodeInternal(id);
+  deleteNode(path: string): void {
+    const p = normalizePath(path);
+    this.emitEvent("delete", p);
+    this.removeNodeInternal(p);
     this.emitChange();
   }
 
-  private removeNodeInternal(id: string): void {
-    const node = this.nodeMap.get(id);
-    if (!node) return;
+  private removeNodeInternal(path: string): void {
+    const prefix = path + "/";
 
-    // Remove from data
-    removeNode(this.data, id);
+    // Remove node and all descendants from data
+    this.data = this.data.filter(
+      (d) => d.path !== path && !d.path.startsWith(prefix),
+    );
 
-    // Remove DOM
-    node.el.remove();
-
-    // Remove from map (including descendants)
-    this.removeFromMap(id);
-
-    // Clear selection if needed
-    if (this.selectedId === id) this.selectedId = null;
-  }
-
-  private removeFromMap(id: string): void {
-    const node = this.nodeMap.get(id);
-    if (!node) return;
-    if (node.data.children) {
-      for (const child of node.data.children) {
-        this.removeFromMap(child.id);
-      }
+    // Clean up expanded nodes
+    this.expandedNodes.delete(path);
+    for (const p of [...this.expandedNodes]) {
+      if (p.startsWith(prefix)) this.expandedNodes.delete(p);
     }
-    this.nodeMap.delete(id);
-    this.expandedNodes.delete(id);
+
+    // Clean up selection
+    if (
+      this.selectedPath === path ||
+      (this.selectedPath && this.selectedPath.startsWith(prefix))
+    ) {
+      this.selectedPath = null;
+    }
+
+    this.fullRerender();
   }
 
   // ── Move (Drag & Drop) ─────────────────────────────────
 
   private handleDragMove(
-    sourceId: string,
-    targetId: string,
+    sourcePath: string,
+    targetPath: string,
     position: DropPosition,
   ): void {
+    // Prevent self-move
+    if (sourcePath === targetPath) return;
+
     // Prevent moving into own descendants
-    if (isDescendant(this.data, sourceId, targetId)) return;
+    if (isDescendant(sourcePath, targetPath)) return;
 
-    const oldPath = getNodePath(this.data, sourceId);
+    const targetData = this.data.find((d) => d.path === targetPath);
+    if (!targetData) return;
 
-    // Remove source from tree
-    const sourceData = removeNode(this.data, sourceId);
-    if (!sourceData) return;
-
-    // Determine new parent & index
-    const targetResult = findNode(this.data, targetId);
-    if (!targetResult) {
-      // Target was removed somehow; re-add source to root
-      this.data.push(sourceData);
-      this.fullRerender();
-      return;
-    }
-    const [targetNode, targetParent] = targetResult;
-
-    if (position === "inside" && targetNode.type === "folder") {
-      if (!targetNode.children) targetNode.children = [];
-      targetNode.children.push(sourceData);
+    let newParentPath: string;
+    if (position === "inside" && targetData.type === "folder") {
+      newParentPath = targetPath;
     } else {
-      const siblings = targetParent ? targetParent.children! : this.data;
-      const idx = siblings.indexOf(targetNode);
-      const insertIdx = position === "before" ? idx : idx + 1;
-      siblings.splice(insertIdx, 0, sourceData);
+      newParentPath = getParentPath(targetPath);
     }
 
-    if (this.options.sort) {
-      const cmp =
-        typeof this.options.sort === "function"
-          ? this.options.sort
-          : defaultSort;
-      sortTree(this.data, cmp);
-    }
+    this.moveNodeInternal(sourcePath, newParentPath);
+  }
+
+  private moveNodeInternal(sourcePath: string, newParentPath: string): void {
+    const sourceName = getName(sourcePath);
+    const newPath = newParentPath
+      ? `${newParentPath}/${sourceName}`
+      : sourceName;
+
+    if (sourcePath === newPath) return; // No change
+
+    // Check for name conflict
+    if (this.data.some((d) => d.path === newPath)) return;
+
+    const oldPath = sourcePath;
+
+    // Update all paths (node + descendants)
+    updatePathsInData(this.data, sourcePath, newPath);
+    updatePathsInSet(this.expandedNodes, sourcePath, newPath);
+    this.updateSelectedPath(sourcePath, newPath);
+
+    // Ensure parent folders exist
+    this.data = normalizeData(this.data);
+
+    // Expand target parent
+    if (newParentPath) this.expandedNodes.add(newParentPath);
 
     this.fullRerender();
+    this.selectNode(newPath);
 
-    // Re-expand previously expanded
-    if (position === "inside") this.expand(targetId);
-
-    this.selectNode(sourceId);
-
-    const newPath = getNodePath(this.data, sourceId);
-    this.emitEventFull("move", sourceId, oldPath, newPath);
+    this.emitEvent("move", newPath, oldPath);
     this.emitChange();
   }
 
   private handleExternalDrop(
     files: FileList,
-    targetId: string | null,
+    targetPath: string | null,
     position: DropPosition,
   ): void {
-    // Create file nodes for each dropped file
+    let parentPath = "";
+    if (targetPath) {
+      const targetData = this.data.find((d) => d.path === targetPath);
+      if (position === "inside" && targetData?.type === "folder") {
+        parentPath = targetPath;
+      } else {
+        parentPath = getParentPath(targetPath);
+      }
+    }
+
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
+      let filePath = parentPath ? `${parentPath}/${f.name}` : f.name;
+
+      // Handle conflicts
+      let counter = 1;
+      while (this.data.some((d) => d.path === filePath)) {
+        const ext = getExtension(f.name);
+        const baseName = ext ? f.name.slice(0, -(ext.length + 1)) : f.name;
+        filePath = parentPath
+          ? `${parentPath}/${baseName}-${counter}${ext ? "." + ext : ""}`
+          : `${baseName}-${counter}${ext ? "." + ext : ""}`;
+        counter++;
+      }
+
       const newNode: FileTreeNodeData = {
-        id: generateId(),
-        name: f.name,
+        path: filePath,
         type: "file",
         meta: { file: f },
       };
 
-      let parentId: string | null = targetId;
-      if (targetId && position !== "inside") {
-        const n = this.nodeMap.get(targetId);
-        parentId = n?.parentId ?? null;
-      }
+      this.data.push(newNode);
+      this.data = normalizeData(this.data);
 
-      if (parentId) {
-        const result = findNode(this.data, parentId);
-        if (result) {
-          const [parent] = result;
-          if (parent.type === "folder") {
-            if (!parent.children) parent.children = [];
-            parent.children.push(newNode);
-          }
-        }
-      } else {
-        this.data.push(newNode);
-      }
-
-      if (this.options.sort) {
-        const cmp =
-          typeof this.options.sort === "function"
-            ? this.options.sort
-            : defaultSort;
-        sortTree(this.data, cmp);
-      }
-
-      this.fullRerender();
-      this.emitEvent("drop", newNode.id);
+      this.emitEvent("drop", filePath);
     }
 
+    if (parentPath) this.expandedNodes.add(parentPath);
+    this.fullRerender();
     this.emitChange();
-  }
-
-  // ── Re-sort parent after rename ─────────────────────────
-
-  private resortParent(id: string): void {
-    const result = findNode(this.data, id);
-    if (!result) return;
-    const [, parent] = result;
-    const cmp =
-      typeof this.options.sort === "function" ? this.options.sort : defaultSort;
-    const siblings = parent?.children ?? this.data;
-    siblings.sort(cmp);
-
-    // Re-render just the parent's children
-    const parentInternal = parent ? this.nodeMap.get(parent.id) : null;
-    const container = parentInternal?.childrenEl ?? this.treeEl;
-    const depth = parentInternal ? parentInternal.depth + 1 : 0;
-    const parentIdStr = parent?.id ?? null;
-
-    // Remove old child DOM elements
-    const childIds = siblings.map((s) => s.id);
-    for (const cid of childIds) {
-      this.removeFromMap(cid);
-    }
-    container.innerHTML = "";
-
-    // Re-render
-    for (const child of siblings) {
-      this.renderNode(child, depth, parentIdStr, container);
-    }
-
-    // Restore selection
-    if (this.selectedId) {
-      const selNode = this.nodeMap.get(this.selectedId);
-      selNode?.contentEl.classList.add("ft-node__content--selected");
-    }
   }
 
   // ── Full Rerender ───────────────────────────────────────
 
   private fullRerender(): void {
-    // Preserve expanded state
-    const wasExpanded = new Set(this.expandedNodes);
+    // Preserve expanded state (already in this.expandedNodes)
     this.renderTree();
-    // Restore expanded
-    for (const id of wasExpanded) {
-      if (this.nodeMap.has(id)) {
-        this.expand(id);
+
+    // Restore expanded state from set
+    for (const path of this.expandedNodes) {
+      const node = this.nodeMap.get(path);
+      if (node && node.data.type === "folder") {
+        node.expanded = true;
+        node.arrowEl?.classList.add("ft-node__arrow--open");
+        if (node.childrenEl) node.childrenEl.style.display = "";
+        node.iconEl.innerHTML = this.resolveIcon(node.data, node.name, true);
       }
+    }
+
+    // Restore selection
+    if (this.selectedPath) {
+      const node = this.nodeMap.get(this.selectedPath);
+      node?.contentEl.classList.add("ft-node__content--selected");
     }
   }
 
   // ── Keyboard ────────────────────────────────────────────
 
   private onKeydown(e: KeyboardEvent): void {
-    if (this.renamingId) return;
-    const visible = this.getVisibleNodeIds();
+    if (this.renamingPath) return;
+
+    const visible = this.getVisibleNodePaths();
     if (visible.length === 0) return;
 
-    const currentIdx = this.selectedId ? visible.indexOf(this.selectedId) : -1;
+    const currentIdx = this.selectedPath
+      ? visible.indexOf(this.selectedPath)
+      : -1;
 
     switch (e.key) {
       case "ArrowDown": {
@@ -942,14 +918,18 @@ export class FileTree {
       }
       case "ArrowRight": {
         e.preventDefault();
-        if (this.selectedId) {
-          const node = this.nodeMap.get(this.selectedId);
-          if (node?.data.type === "folder") {
-            if (!node.expanded) {
-              this.expand(this.selectedId);
-            } else if (node.data.children?.length) {
-              this.selectNode(node.data.children[0].id);
-              this.scrollIntoView(node.data.children[0].id);
+        if (this.selectedPath) {
+          const nodeData = this.data.find((d) => d.path === this.selectedPath);
+          if (nodeData?.type === "folder") {
+            if (!this.expandedNodes.has(this.selectedPath)) {
+              this.expand(this.selectedPath);
+            } else {
+              // Move to first child
+              const children = this.getChildPaths(this.selectedPath);
+              if (children.length > 0) {
+                this.selectNode(children[0]);
+                this.scrollIntoView(children[0]);
+              }
             }
           }
         }
@@ -957,13 +937,19 @@ export class FileTree {
       }
       case "ArrowLeft": {
         e.preventDefault();
-        if (this.selectedId) {
-          const node = this.nodeMap.get(this.selectedId);
-          if (node?.data.type === "folder" && node.expanded) {
-            this.collapse(this.selectedId);
-          } else if (node?.parentId) {
-            this.selectNode(node.parentId);
-            this.scrollIntoView(node.parentId);
+        if (this.selectedPath) {
+          const nodeData = this.data.find((d) => d.path === this.selectedPath);
+          if (
+            nodeData?.type === "folder" &&
+            this.expandedNodes.has(this.selectedPath)
+          ) {
+            this.collapse(this.selectedPath);
+          } else {
+            const parentPath = getParentPath(this.selectedPath);
+            if (parentPath && this.nodeMap.has(parentPath)) {
+              this.selectNode(parentPath);
+              this.scrollIntoView(parentPath);
+            }
           }
         }
         break;
@@ -971,49 +957,64 @@ export class FileTree {
       case "Enter":
       case " ": {
         e.preventDefault();
-        if (this.selectedId) {
-          const node = this.nodeMap.get(this.selectedId);
-          if (node?.data.type === "folder") this.toggleExpand(this.selectedId);
+        if (this.selectedPath) {
+          const nodeData = this.data.find((d) => d.path === this.selectedPath);
+          if (nodeData?.type === "folder") this.toggleExpand(this.selectedPath);
         }
         break;
       }
       case "F2": {
         e.preventDefault();
-        if (this.selectedId && this.options.contextMenu !== false) {
-          this.startRename(this.selectedId);
+        if (this.selectedPath && this.options.contextMenu !== false) {
+          this.startRename(this.selectedPath);
         }
         break;
       }
       case "Delete": {
         e.preventDefault();
-        if (this.selectedId && this.options.contextMenu !== false) {
-          this.deleteNode(this.selectedId);
+        if (this.selectedPath && this.options.contextMenu !== false) {
+          this.deleteNode(this.selectedPath);
         }
         break;
       }
     }
   }
 
-  private getVisibleNodeIds(): string[] {
-    const ids: string[] = [];
-    const walk = (nodes: FileTreeNodeData[]) => {
+  private getVisibleNodePaths(): string[] {
+    const paths: string[] = [];
+    const walk = (nodes: HierarchyNode[]): void => {
       for (const node of nodes) {
-        ids.push(node.id);
+        paths.push(node.path);
         if (
           node.type === "folder" &&
-          this.expandedNodes.has(node.id) &&
-          node.children
+          this.expandedNodes.has(node.path) &&
+          node.children.length > 0
         ) {
           walk(node.children);
         }
       }
     };
-    walk(this.data);
-    return ids;
+    walk(this.hierarchy);
+    return paths;
   }
 
-  private scrollIntoView(id: string): void {
-    const node = this.nodeMap.get(id);
+  private getChildPaths(folderPath: string): string[] {
+    const find = (nodes: HierarchyNode[]): HierarchyNode | null => {
+      for (const n of nodes) {
+        if (n.path === folderPath) return n;
+        if (n.children.length > 0) {
+          const found = find(n.children);
+          if (found) return found;
+        }
+      }
+      return null;
+    };
+    const node = find(this.hierarchy);
+    return node?.children.map((c) => c.path) ?? [];
+  }
+
+  private scrollIntoView(path: string): void {
+    const node = this.nodeMap.get(path);
     node?.contentEl.scrollIntoView({ block: "nearest" });
   }
 
@@ -1027,204 +1028,135 @@ export class FileTree {
     this.emitter.off(event, handler);
   }
 
-  private emitEvent(type: FileTreeEventType, nodeId: string): void {
-    const result = findNode(this.data, nodeId);
-    if (!result) return;
-    const [node, parent] = result;
-    const path = getNodePath(this.data, nodeId);
-    this.emitter.emit(type, {
-      type,
-      node: { ...node },
-      path,
-      parentNode: parent ? { ...parent, children: undefined } : null,
-      tree: deepClone(this.data),
-    });
-  }
-
-  private emitEventFull(
+  private emitEvent(
     type: FileTreeEventType,
-    nodeId: string,
+    path: string,
     oldPath?: string,
-    newPath?: string,
   ): void {
-    const result = findNode(this.data, nodeId);
-    if (!result) return;
-    const [node, parent] = result;
+    const nodeData = this.data.find((d) => d.path === path);
+    const parentPath = getParentPath(path);
+    const parentNode = parentPath
+      ? (this.data.find((d) => d.path === parentPath) ?? null)
+      : null;
+
     this.emitter.emit(type, {
       type,
-      node: { ...node },
-      path: newPath ?? getNodePath(this.data, nodeId),
+      node: nodeData ? { ...nodeData } : { path, type: "file" },
+      path,
       oldPath,
-      parentNode: parent ? { ...parent, children: undefined } : null,
-      tree: deepClone(this.data),
+      parentPath,
+      parentNode: parentNode ? { ...parentNode } : null,
+      tree: cloneData(this.data),
     });
   }
 
   private emitChange(): void {
-    const tree = deepClone(this.data);
     this.emitter.emit("change", {
       type: "change",
-      node: { id: "", name: "", type: "folder" },
+      node: { path: "", type: "folder" },
       path: "",
+      parentPath: "",
       parentNode: null,
-      tree,
+      tree: cloneData(this.data),
     });
   }
 
   // ── Public API: Data ────────────────────────────────────
 
+  /** Get a deep clone of the current flat data array. */
   getData(): FileTreeNodeData[] {
-    return deepClone(this.data);
+    return cloneData(this.data);
   }
 
-  getNode(id: string): FileTreeNodeData | undefined {
-    const result = findNode(this.data, id);
-    return result ? { ...result[0] } : undefined;
+  /** Get a single node by path. */
+  getNode(path: string): FileTreeNodeData | undefined {
+    const p = normalizePath(path);
+    const item = this.data.find((d) => d.path === p);
+    return item ? { ...item } : undefined;
   }
 
-  getPath(id: string): string {
-    return getNodePath(this.data, id);
-  }
-
+  /** Get the currently selected node, or null. */
   getSelectedNode(): FileTreeNodeData | null {
-    if (!this.selectedId) return null;
-    return this.getNode(this.selectedId) ?? null;
+    if (!this.selectedPath) return null;
+    return this.getNode(this.selectedPath) ?? null;
   }
 
   /** Replace the entire tree data and re-render. */
   setData(data: FileTreeNodeData[]): void {
-    this.data = deepClone(data);
-    if (this.options.sort) {
-      const cmp =
-        typeof this.options.sort === "function"
-          ? this.options.sort
-          : defaultSort;
-      sortTree(this.data, cmp);
-    }
-    this.selectedId = null;
+    this.data = normalizeData(data);
+    this.selectedPath = null;
+    this.expandedNodes.clear();
     this.fullRerender();
   }
 
   // ── Public API: Node Operations ─────────────────────────
 
-  /** Programmatically add a node. */
-  addNode(
-    parentId: string | null,
-    node: FileTreeNodeData,
-    index?: number,
-  ): void {
-    const newNode = { ...node, id: node.id || generateId() };
-    if (newNode.type === "folder" && !newNode.children) newNode.children = [];
+  /**
+   * Add a node to the tree. Parent folders are auto-created from the path.
+   * To add multiple nodes at once, use `setData` or call `addNode` in a loop.
+   */
+  addNode(node: FileTreeNodeData): void {
+    const normalized = { ...node, path: normalizePath(node.path) };
+    if (!normalized.path) return;
 
-    if (parentId) {
-      const result = findNode(this.data, parentId);
-      if (result) {
-        const [parent] = result;
-        if (!parent.children) parent.children = [];
-        if (index !== undefined) {
-          parent.children.splice(index, 0, newNode);
-        } else {
-          parent.children.push(newNode);
-        }
-      }
-    } else {
-      if (index !== undefined) {
-        this.data.splice(index, 0, newNode);
-      } else {
-        this.data.push(newNode);
-      }
-    }
+    // Don't add if already exists
+    if (this.data.some((d) => d.path === normalized.path)) return;
 
-    if (this.options.sort) {
-      const cmp =
-        typeof this.options.sort === "function"
-          ? this.options.sort
-          : defaultSort;
-      sortTree(this.data, cmp);
-    }
+    this.data.push(normalized);
+    this.data = normalizeData(this.data);
 
     this.fullRerender();
-    if (parentId) this.expand(parentId);
-    this.emitEvent("create", newNode.id);
+
+    // Expand parent
+    const parentPath = getParentPath(normalized.path);
+    if (parentPath) this.expand(parentPath);
+
+    this.emitEvent("create", normalized.path);
     this.emitChange();
   }
 
-  /** Programmatically remove a node. */
-  removeNode(id: string): void {
-    this.deleteNode(id);
+  /** Remove a node (and all descendants if it is a folder). */
+  removeNode(path: string): void {
+    this.deleteNode(path);
   }
 
-  /** Programmatically rename a node. */
-  renameNode(id: string, newName: string): void {
-    const result = findNode(this.data, id);
-    if (!result) return;
-    const [node] = result;
-    const oldPath = getNodePath(this.data, id);
-    node.name = newName;
+  /** Rename a node. Only changes the last segment (name) of the path. */
+  renameNode(path: string, newName: string): void {
+    const p = normalizePath(path);
+    if (!this.isValidName(newName)) return;
 
-    const internal = this.nodeMap.get(id);
-    if (internal) {
-      internal.nameEl.textContent = newName;
-      internal.iconEl.innerHTML = this.resolveIcon(node, internal.expanded);
-    }
+    const parentPath = getParentPath(p);
+    const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
-    if (this.options.sort) {
-      this.resortParent(id);
-    }
+    if (newPath === p) return;
+    if (this.data.some((d) => d.path === newPath)) return; // Conflict
 
-    const newPath = getNodePath(this.data, id);
-    this.emitEventFull("rename", id, oldPath, newPath);
-    this.emitChange();
-  }
-
-  /** Programmatically move a node. */
-  moveNode(
-    nodeId: string,
-    targetParentId: string | null,
-    index?: number,
-  ): void {
-    const oldPath = getNodePath(this.data, nodeId);
-    const sourceData = removeNode(this.data, nodeId);
-    if (!sourceData) return;
-
-    if (targetParentId) {
-      const result = findNode(this.data, targetParentId);
-      if (result) {
-        const [parent] = result;
-        if (!parent.children) parent.children = [];
-        if (index !== undefined) {
-          parent.children.splice(index, 0, sourceData);
-        } else {
-          parent.children.push(sourceData);
-        }
-      }
-    } else {
-      if (index !== undefined) {
-        this.data.splice(index, 0, sourceData);
-      } else {
-        this.data.push(sourceData);
-      }
-    }
-
-    if (this.options.sort) {
-      const cmp =
-        typeof this.options.sort === "function"
-          ? this.options.sort
-          : defaultSort;
-      sortTree(this.data, cmp);
-    }
+    updatePathsInData(this.data, p, newPath);
+    updatePathsInSet(this.expandedNodes, p, newPath);
+    this.updateSelectedPath(p, newPath);
 
     this.fullRerender();
-    if (targetParentId) this.expand(targetParentId);
-    this.selectNode(nodeId);
 
-    const newPath = getNodePath(this.data, nodeId);
-    this.emitEventFull("move", nodeId, oldPath, newPath);
+    this.emitEvent("rename", newPath, p);
     this.emitChange();
   }
 
-  select(id: string): void {
-    this.selectNode(id);
+  /**
+   * Move a node to a new parent folder.
+   * Pass empty string or `null` for `targetParentPath` to move to root.
+   */
+  moveNode(sourcePath: string, targetParentPath: string | null): void {
+    const src = normalizePath(sourcePath);
+    const tgt = targetParentPath ? normalizePath(targetParentPath) : "";
+    this.moveNodeInternal(src, tgt);
+  }
+
+  /** Programmatically select a node. */
+  select(path: string): void {
+    const p = normalizePath(path);
+    if (this.nodeMap.has(p)) {
+      this.selectNode(p);
+    }
   }
 
   // ── Theme & Direction ───────────────────────────────────
