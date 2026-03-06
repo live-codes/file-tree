@@ -102,6 +102,8 @@ export interface FileTreeEvent {
   parentNode: FileTreeNodeData | null;
   /** Full snapshot of the current flat data array. */
   tree: FileTreeNodeData[];
+  /** Data passed to the event. */
+  data?: { files: FileList; items: DataTransferItemList };
   /**
    * Whether `preventDefault()` has been called on this event.
    * Only checked for certain event types (currently `delete`).

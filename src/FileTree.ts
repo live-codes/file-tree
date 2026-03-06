@@ -134,8 +134,8 @@ export class FileTree {
       this.dragDrop = new DragDrop(this.treeEl, {
         getNode: (path) => this.nodeMap.get(path),
         onMove: (src, tgt, pos) => this.handleDragMove(src, tgt, pos),
-        onExternalDrop: (files, tgt, pos) =>
-          this.handleExternalDrop(files, tgt, pos),
+        onExternalDrop: (entries, tgt, pos) =>
+          this.handleExternalDrop(entries, tgt, pos),
       });
     }
 
@@ -828,7 +828,7 @@ export class FileTree {
   }
 
   private handleExternalDrop(
-    files: FileList,
+    entries: { files: FileList; items: DataTransferItemList },
     targetPath: string | null,
     position: DropPosition,
   ): void {
@@ -842,6 +842,10 @@ export class FileTree {
       }
     }
 
+    const event = this.emitEvent("drop", parentPath, undefined, entries);
+    if (event.defaultPrevented) return;
+
+    const files = entries.files;
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
       let filePath = parentPath ? `${parentPath}/${f.name}` : f.name;
@@ -864,8 +868,6 @@ export class FileTree {
 
       this.data.push(newNode);
       this.data = normalizeData(this.data);
-
-      this.emitEvent("drop", filePath);
     }
 
     if (parentPath) this.expandedNodes.add(parentPath);
@@ -1048,6 +1050,7 @@ export class FileTree {
     type: FileTreeEventType,
     path: string,
     oldPath?: string,
+    data?: { files: FileList; items: DataTransferItemList },
   ): FileTreeEvent {
     const nodeData = this.data.find((d) => d.path === path);
     const parentPath = getParentPath(path);
@@ -1063,6 +1066,7 @@ export class FileTree {
       parentPath,
       parentNode: parentNode ? { ...parentNode } : null,
       tree: cloneData(this.data),
+      data,
       defaultPrevented: false,
       preventDefault() {
         this.defaultPrevented = true;

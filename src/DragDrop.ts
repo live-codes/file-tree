@@ -10,7 +10,7 @@ export interface DragDropCallbacks {
     position: DropPosition,
   ) => void;
   onExternalDrop: (
-    files: FileList,
+    entries: { files: FileList; items: DataTransferItemList },
     targetPath: string | null,
     position: DropPosition,
   ) => void;
@@ -182,11 +182,14 @@ export class DragDrop {
 
     // External file drop
     if (
-      e.dataTransfer?.files &&
-      e.dataTransfer.files.length > 0 &&
+      ((e.dataTransfer?.files && e.dataTransfer.files.length > 0) ||
+        (e.dataTransfer?.items && e.dataTransfer.items.length > 0)) &&
       !this.draggedPath
     ) {
-      this.callbacks.onExternalDrop(e.dataTransfer.files, targetPath, position);
+      const files = e.dataTransfer.files;
+      const items = e.dataTransfer.items; // for directories
+      const entries = { files, items };
+      this.callbacks.onExternalDrop(entries, targetPath, position);
       return;
     }
 
