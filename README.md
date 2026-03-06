@@ -241,6 +241,7 @@ interface FileTreeEvent {
   parentPath: string; // Parent folder path ('' for root)
   parentNode: FileTreeNodeData | null;
   tree: FileTreeNodeData[]; // Full flat data snapshot
+  data?: { files: FileList; items: DataTransferItemList }; // Drag-and-drop
 }
 ```
 
