@@ -99,9 +99,6 @@ export class ContextMenu {
     requestAnimationFrame(() => {
       const rect = this.el.getBoundingClientRect();
       const containerRect = this.container.getBoundingClientRect();
-      const viewW = containerRect.width;
-      const viewH = containerRect.height;
-
       if (rect.right > containerRect.right) {
         this.el.style.left = `${x - rect.width}px`;
       }

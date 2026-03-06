@@ -200,7 +200,7 @@ export class DragDrop {
     this.cleanup();
   }
 
-  private onDragEnd(_e: DragEvent): void {
+  private onDragEnd(): void {
     this.cleanup();
   }
 
