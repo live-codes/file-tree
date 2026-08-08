@@ -552,7 +552,7 @@ export class FileTree {
       });
     }
 
-    if (cfg.paste) {
+    if (cfg.paste && this.clipboard) {
       entries.push({
         id: "paste",
         label: this.t("paste"),
