@@ -373,6 +373,7 @@ load order.
     box-shadow: var(--ft-context-shadow);
     color: var(--ft-context-color);
     min-width: 180px;
+    overflow: hidden;
     padding: 4px;
     position: absolute;
     z-index: 1000;
@@ -380,7 +381,6 @@ load order.
 
   .ft-context-menu__item {
     align-items: center;
-    border-radius: var(--ft-border-radius);
     cursor: pointer;
     display: flex;
     gap: 8px;

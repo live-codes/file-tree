@@ -99,12 +99,24 @@ export class ContextMenu {
     requestAnimationFrame(() => {
       const rect = this.el.getBoundingClientRect();
       const containerRect = this.container.getBoundingClientRect();
+
       if (rect.right > containerRect.right) {
         this.el.style.left = `${x - rect.width}px`;
       }
       if (rect.bottom > containerRect.bottom) {
         this.el.style.top = `${Math.max(0, y - rect.height)}px`;
       }
+
+      // Clamp within the container: the flip above can push the menu past
+      // the left edge, which `overflow: hidden` on the root would clip.
+      const left = Math.max(
+        containerRect.left,
+        Math.min(
+          containerRect.right - rect.width,
+          this.el.getBoundingClientRect().left,
+        ),
+      );
+      this.el.style.left = `${left - containerRect.left}px`;
     });
 
     this.isOpen = true;
