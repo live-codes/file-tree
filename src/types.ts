@@ -43,7 +43,14 @@ export interface ContextMenuOptions {
   createFolder?: boolean;
   rename?: boolean;
   delete?: boolean;
+  /** Copy a node to the clipboard (duplicate it via Paste). Default: `true`. */
   copy?: boolean;
+  /** Cut a node to the clipboard (move it via Paste). Default: `true`. */
+  cut?: boolean;
+  /** Paste the clipboard contents into the tree. Default: `true`. */
+  paste?: boolean;
+  /** Copy the node's full path to the system clipboard. Default: `false`. */
+  copyPath?: boolean;
   custom?: ContextMenuItem[];
 }
 
@@ -59,6 +66,9 @@ export type FileTreeStringKey =
   | "newFolder"
   | "expandAll"
   | "collapseAll"
+  | "copy"
+  | "cut"
+  | "paste"
   | "copyPath"
   | "rename"
   | "delete";
@@ -105,6 +115,7 @@ export type FileTreeEventType =
   | "expand"
   | "collapse"
   | "create"
+  | "copy"
   | "rename"
   | "delete"
   | "move"

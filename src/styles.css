@@ -243,6 +243,12 @@ load order.
     background: var(--ft-node-selected);
   }
 
+  /* ── Cut highlight ────────────────────────────────────── */
+
+  .ft-node__content--cut {
+    opacity: 0.5;
+  }
+
   /* ── Drop indicators ─────────────────────────────────────── */
 
   .ft-node__content--drop-inside {

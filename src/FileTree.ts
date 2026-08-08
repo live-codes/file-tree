@@ -13,6 +13,8 @@ import {
   editIcon,
   trashIcon,
   copyIcon,
+  cutIcon,
+  pasteIcon,
   defaultIconMap,
   defaultNameIconMap,
 } from "./icons";
@@ -51,6 +53,9 @@ export const defaultStrings: Record<FileTreeStringKey, string> = {
   expandAll: "Expand All",
   collapseAll: "Collapse All",
   copyPath: "Copy Path",
+  copy: "Copy",
+  cut: "Cut",
+  paste: "Paste",
   rename: "Rename",
   delete: "Delete",
 };
@@ -74,7 +79,10 @@ const DEFAULT_OPTIONS: Required<FileTreeOptions> = {
     createFolder: true,
     rename: true,
     delete: true,
-    copy: false,
+    copy: true,
+    cut: true,
+    paste: true,
+    copyPath: true,
     custom: [],
   },
   icons: {},
@@ -103,6 +111,7 @@ export class FileTree {
   private nameIconMap: Record<string, string>;
   private renamingPath: string | null = null;
   private pendingNewNodePath: string | null = null;
+  private clipboard: { path: string; type: "copy" | "cut" } | null = null;
   private t: FileTreeTranslate;
 
   // ── Constructor ─────────────────────────────────────────
@@ -492,6 +501,17 @@ export class FileTree {
 
     const entries: ContextMenuEntry[] = [];
 
+    const addSeparator = (): void => {
+      if (entries.length > 0) {
+        entries.push({
+          id: `sep-${entries.length}`,
+          label: "",
+          separator: true,
+          onClick: () => {},
+        });
+      }
+    };
+
     if (nodeData.type === "folder" && cfg.createFile) {
       entries.push({
         id: "create-file",
@@ -510,20 +530,40 @@ export class FileTree {
       });
     }
 
-    if (
-      (cfg.createFile || cfg.createFolder) &&
-      nodeData.type === "folder" &&
-      (cfg.rename || cfg.delete || cfg.copy)
-    ) {
+    // Clipboard actions
+    if (cfg.copy) {
+      addSeparator();
       entries.push({
-        id: "sep1",
-        label: "",
-        separator: true,
-        onClick: () => {},
+        id: "copy",
+        label: this.t("copy"),
+        icon: copyIcon,
+        shortcut: this.modKeyLabel + "C",
+        onClick: () => this.copyToClipboard(path),
       });
     }
 
-    if (cfg.copy) {
+    if (cfg.cut) {
+      entries.push({
+        id: "cut",
+        label: this.t("cut"),
+        icon: cutIcon,
+        shortcut: this.modKeyLabel + "X",
+        onClick: () => this.cutNode(path),
+      });
+    }
+
+    if (cfg.paste) {
+      entries.push({
+        id: "paste",
+        label: this.t("paste"),
+        icon: pasteIcon,
+        shortcut: this.modKeyLabel + "V",
+        onClick: () => this.pasteNode(path),
+      });
+    }
+
+    if (cfg.copyPath) {
+      addSeparator();
       entries.push({
         id: "copy-path",
         label: this.t("copyPath"),
@@ -535,6 +575,7 @@ export class FileTree {
     }
 
     if (cfg.rename) {
+      addSeparator();
       entries.push({
         id: "rename",
         label: this.t("rename"),
@@ -558,13 +599,8 @@ export class FileTree {
       const visibleCustom = cfg.custom.filter(
         (c) => !c.visible || c.visible(nodeData),
       );
-      if (visibleCustom.length > 0 && entries.length > 0) {
-        entries.push({
-          id: "sep-custom",
-          label: "",
-          separator: true,
-          onClick: () => {},
-        });
+      if (visibleCustom.length > 0) {
+        addSeparator();
       }
       for (const c of visibleCustom) {
         entries.push({
@@ -582,6 +618,146 @@ export class FileTree {
     // Convert page coordinates to root-relative
     const rootRect = this.root.getBoundingClientRect();
     this.contextMenu.show(x - rootRect.left, y - rootRect.top, entries);
+  }
+
+  /** Modifier key label for shortcut hints (⌘ on macOS, Ctrl elsewhere). */
+  private get modKeyLabel(): string {
+    return navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
+  }
+
+  // ── Clipboard (Copy / Cut / Paste) ──────────────────────
+
+  /** Copy a node to the internal clipboard for later Paste (duplicate). */
+  copyToClipboard(path: string): void {
+    const p = normalizePath(path);
+    if (!this.data.some((d) => d.path === p)) return;
+    this.clipboard = { path: p, type: "copy" };
+    this.clearCutHighlight();
+  }
+
+  /** Cut a node to the internal clipboard for later Paste (move). */
+  cutNode(path: string): void {
+    const p = normalizePath(path);
+    if (!this.data.some((d) => d.path === p)) return;
+    this.clipboard = { path: p, type: "cut" };
+    this.clearCutHighlight();
+    this.applyCutHighlight();
+  }
+
+  /** Paste the internal clipboard into a target folder (defaults to the selected node's parent). */
+  pasteNode(targetPath?: string): void {
+    if (!this.clipboard) return;
+    const { path: src, type } = this.clipboard;
+
+    // Resolve the destination folder.
+    let destPath = "";
+    if (targetPath) {
+      const targetData = this.data.find((d) => d.path === targetPath);
+      destPath =
+        targetData?.type === "folder" ? targetPath : getParentPath(targetPath);
+    } else if (this.selectedPath) {
+      const selData = this.data.find((d) => d.path === this.selectedPath);
+      destPath =
+        selData?.type === "folder"
+          ? selData.path
+          : getParentPath(this.selectedPath);
+    }
+
+    // Guard: pasting into a descendant of the copied node (or into itself).
+    if (type === "copy") {
+      const destIsInSrc =
+        destPath === src ||
+        (destPath !== "" && isDescendant(src, destPath)) ||
+        (destPath !== "" && isDescendant(destPath, src));
+      if (destIsInSrc) return;
+    }
+
+    // Resolve a unique name in the destination.
+    const srcName = getName(src);
+    let newPath = destPath ? `${destPath}/${srcName}` : srcName;
+    if (newPath === src) return;
+    let counter = 1;
+    while (this.data.some((d) => d.path === newPath)) {
+      const ext = getExtension(srcName);
+      const baseName = ext ? srcName.slice(0, -(ext.length + 1)) : srcName;
+      newPath = destPath
+        ? `${destPath}/${baseName}-${counter}${ext ? "." + ext : ""}`
+        : `${baseName}-${counter}${ext ? "." + ext : ""}`;
+      counter++;
+    }
+
+    if (type === "copy") {
+      // Clone the node (and descendants) into the destination folder.
+      this.copyNodeInternal(src, destPath);
+    } else {
+      // Cut: move the node (and descendants) to the destination.
+      this.moveNodeInternal(src, destPath);
+      this.clipboard = null;
+      this.clearCutHighlight();
+    }
+  }
+
+  /**
+   * Duplicate a node (and its descendants) into a target parent folder.
+   * Resolves a unique name on conflict. Returns the new path, or `null` if
+   * the copy cannot be performed (invalid source, same location, or copying
+   * into a descendant).
+   */
+  copyNodeInternal(sourcePath: string, targetParentPath: string): string | null {
+    const src = normalizePath(sourcePath);
+    const destPath = targetParentPath ? normalizePath(targetParentPath) : "";
+    if (!this.data.some((d) => d.path === src)) return null;
+
+    // Guard: copying into a descendant of the source (or into itself).
+    const destIsInSrc =
+      destPath === src ||
+      (destPath !== "" && isDescendant(src, destPath)) ||
+      (destPath !== "" && isDescendant(destPath, src));
+    if (destIsInSrc) return null;
+
+    // Resolve a unique name in the destination.
+    const srcName = getName(src);
+    let newPath = destPath ? `${destPath}/${srcName}` : srcName;
+    if (newPath === src) return null;
+    let counter = 1;
+    while (this.data.some((d) => d.path === newPath)) {
+      const ext = getExtension(srcName);
+      const baseName = ext ? srcName.slice(0, -(ext.length + 1)) : srcName;
+      newPath = destPath
+        ? `${destPath}/${baseName}-${counter}${ext ? "." + ext : ""}`
+        : `${baseName}-${counter}${ext ? "." + ext : ""}`;
+      counter++;
+    }
+
+    // Clone the node and all its descendants.
+    const prefix = src + "/";
+    const copies = this.data
+      .filter((d) => d.path === src || d.path.startsWith(prefix))
+      .map((d) => {
+        const suffix = d.path === src ? "" : d.path.slice(src.length);
+        return { ...d, path: newPath + suffix };
+      });
+    this.data = normalizeData([...this.data, ...copies]);
+    if (destPath) this.expandedNodes.add(destPath);
+    this.fullRerender();
+    this.selectNode(newPath);
+    this.emitEvent("create", newPath);
+    this.emitEvent("copy", newPath, src);
+    this.emitChange();
+
+    return newPath;
+  }
+
+  private applyCutHighlight(): void {
+    if (!this.clipboard || this.clipboard.type !== "cut") return;
+    const node = this.nodeMap.get(this.clipboard.path);
+    node?.contentEl.classList.add("ft-node__content--cut");
+  }
+
+  private clearCutHighlight(): void {
+    this.root
+      .querySelectorAll(".ft-node__content--cut")
+      .forEach((el) => el.classList.remove("ft-node__content--cut"));
   }
 
   // ── Rename ──────────────────────────────────────────────
@@ -797,6 +973,15 @@ export class FileTree {
       this.selectedPath = null;
     }
 
+    // Clean up clipboard if it referenced the removed node
+    if (
+      this.clipboard &&
+      (this.clipboard.path === path ||
+        this.clipboard.path.startsWith(prefix))
+    ) {
+      this.clipboard = null;
+    }
+
     this.fullRerender();
   }
 
@@ -918,6 +1103,9 @@ export class FileTree {
       const node = this.nodeMap.get(this.selectedPath);
       node?.contentEl.classList.add("ft-node__content--selected");
     }
+
+    // Restore cut highlight
+    this.applyCutHighlight();
   }
 
   // ── Keyboard ────────────────────────────────────────────
@@ -1004,6 +1192,45 @@ export class FileTree {
         e.preventDefault();
         if (this.selectedPath && this.options.contextMenu !== false) {
           this.deleteNode(this.selectedPath);
+        }
+        break;
+      }
+      case "c":
+      case "C": {
+        if (
+          (e.ctrlKey || e.metaKey) &&
+          this.selectedPath &&
+          this.options.contextMenu !== false &&
+          (this.options.contextMenu as ContextMenuOptions).copy
+        ) {
+          e.preventDefault();
+          this.copyToClipboard(this.selectedPath);
+        }
+        break;
+      }
+      case "x":
+      case "X": {
+        if (
+          (e.ctrlKey || e.metaKey) &&
+          this.selectedPath &&
+          this.options.contextMenu !== false &&
+          (this.options.contextMenu as ContextMenuOptions).cut
+        ) {
+          e.preventDefault();
+          this.cutNode(this.selectedPath);
+        }
+        break;
+      }
+      case "v":
+      case "V": {
+        if (
+          (e.ctrlKey || e.metaKey) &&
+          this.clipboard &&
+          this.options.contextMenu !== false &&
+          (this.options.contextMenu as ContextMenuOptions).paste
+        ) {
+          e.preventDefault();
+          this.pasteNode();
         }
         break;
       }
@@ -1194,6 +1421,20 @@ export class FileTree {
     const src = normalizePath(sourcePath);
     const tgt = targetParentPath ? normalizePath(targetParentPath) : "";
     this.moveNodeInternal(src, tgt);
+  }
+
+  /**
+   * Copy a node (and its descendants) to a new parent folder
+   * (`''` or `null` for root). Emits `copy` and `create` events.
+   * Returns the new path, or `null` if the copy cannot be performed.
+   */
+  copyNode(
+    sourcePath: string,
+    targetParentPath: string | null,
+  ): string | null {
+    const src = normalizePath(sourcePath);
+    const tgt = targetParentPath ? normalizePath(targetParentPath) : "";
+    return this.copyNodeInternal(src, tgt);
   }
 
   select(path: string): void {

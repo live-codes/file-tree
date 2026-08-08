@@ -100,6 +100,17 @@ export const copyIcon = svg(
    <path d="M3 11V3a1 1 0 011-1h6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>`,
 );
 
+export const cutIcon = svg(
+  `<circle cx="5" cy="4" r="2" stroke="currentColor" stroke-width="1.2"/>
+   <circle cx="5" cy="12" r="2" stroke="currentColor" stroke-width="1.2"/>
+   <path d="M6.5 5.5L14 13M6.5 10.5L14 3" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>`,
+);
+
+export const pasteIcon = svg(
+  `<rect x="4" y="3" width="9" height="12" rx="1" stroke="currentColor" stroke-width="1.2"/>
+   <path d="M6 3V1.5h5V3M6.5 8l2 2 3-3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`,
+);
+
 // ── Icon Registry ───────────────────────────────────────────
 
 export const defaultIconMap: Record<string, string> = {

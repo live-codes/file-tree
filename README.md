@@ -32,6 +32,7 @@ const tree = new FileTree("#container", {
 // Listen to events
 tree.on("select", (e) => console.log("Selected:", e.path));
 tree.on("rename", (e) => console.log("Renamed:", e.oldPath, "->", e.path));
+tree.on("copy", (e) => console.log("Copied:", e.oldPath, "->", e.path));
 tree.on("move", (e) => console.log("Moved:", e.oldPath, "->", e.path));
 tree.on("delete", (e) => {
   e.preventDefault();
@@ -141,7 +142,10 @@ const tree = new FileTree("#container", {
   createFolder?: boolean;  // default: true
   rename?: boolean;        // default: true
   delete?: boolean;        // default: true
-  copy?: boolean;          // default: false
+  copy?: boolean;          // default: true  (copy node to clipboard)
+  cut?: boolean;           // default: true  (cut node to clipboard)
+  paste?: boolean;         // default: true  (paste clipboard into tree)
+  copyPath?: boolean;      // default: true  (copy node path to system clipboard)
   custom?: ContextMenuItem[];
 }
 ```
@@ -183,6 +187,9 @@ const strings: Record<FileTreeStringKey, string> = {
   newFolder: "Nouveau dossier",
   expandAll: "Tout déplier",
   collapseAll: "Tout replier",
+  copy: "Copier",
+  cut: "Couper",
+  paste: "Coller",
   copyPath: "Copier le chemin",
   rename: "Renommer",
   delete: "Supprimer",
@@ -228,6 +235,7 @@ Custom toolbar buttons and context menu items are entirely user-supplied, so the
 | `removeNode(path)`                       | Remove a node and its descendants                            |
 | `renameNode(path, newName)`              | Rename a node (changes only the last path segment)           |
 | `moveNode(sourcePath, targetParentPath)` | Move a node to a new parent folder (`''` or `null` for root) |
+| `copyNode(sourcePath, targetParentPath)` | Copy a node to a new parent folder; returns the new path     |
 | `setData(data)`                          | Replace the entire tree                                      |
 | `getData()`                              | Get a clone of the flat data array                           |
 | `getNode(path)`                          | Get a single node by path                                    |
@@ -261,9 +269,10 @@ tree.off(eventType, handler);
 | `expand`   | A folder is expanded                            |
 | `collapse` | A folder is collapsed                           |
 | `create`   | A new node is created (after name is committed) |
+| `copy`     | A node is copied                                |
+| `move`     | A node is moved                                 |
 | `rename`   | A node is renamed                               |
 | `delete`   | A node is deleted                               |
-| `move`     | A node is moved via drag-and-drop or API        |
 | `drop`     | External files are dropped into the tree        |
 | `change`   | Any structural change to the tree data          |
 
@@ -292,6 +301,9 @@ interface FileTreeEvent {
 | `Enter` / `Space` | Toggle folder expand/collapse        |
 | `F2`              | Rename selected node                 |
 | `Delete`          | Delete selected node                 |
+| `Ctrl/Cmd + C`    | Copy selected node                   |
+| `Ctrl/Cmd + X`    | Cut selected node                    |
+| `Ctrl/Cmd + V`    | Paste clipboard into selected folder |
 
 ## CSS Customization
 
