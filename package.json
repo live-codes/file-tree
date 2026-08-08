@@ -1,6 +1,6 @@
 {
   "name": "@live-codes/file-tree",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A zero-dependency, framework-agnostic file tree component with drag-and-drop, context menus, theming, and RTL support.",
   "author": "",
   "license": "MIT",
