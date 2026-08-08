@@ -50,6 +50,25 @@ export interface ContextMenuOptions {
 export type Theme = "light" | "dark";
 export type Direction = "ltr" | "rtl";
 
+/**
+ * Keys for the user-facing strings rendered by the library.
+ * Pass a translation function via the `t` option to localize them.
+ */
+export type FileTreeStringKey =
+  | "newFile"
+  | "newFolder"
+  | "expandAll"
+  | "collapseAll"
+  | "copyPath"
+  | "rename"
+  | "delete";
+
+/**
+ * Translates a built-in string key to a localized string.
+ * Supplied via the `t` option for i18n.
+ */
+export type FileTreeTranslate = (key: FileTreeStringKey) => string;
+
 /** Options passed to the FileTree constructor. */
 export interface FileTreeOptions {
   /** Initial tree data (flat array). Parent folders are auto-created from paths. */
@@ -72,6 +91,12 @@ export interface FileTreeOptions {
   icons?: Record<string, string>;
   /** Sort nodes. `true` for default (folders first, alphabetical). Or provide a custom comparator. */
   sort?: boolean | ((a: FileTreeNodeData, b: FileTreeNodeData) => number);
+  /**
+   * Translate function for built-in UI strings (toolbar tooltips, context menu
+   * labels). Takes a `FileTreeStringKey` and returns the localized string.
+   * Defaults to the built-in English strings.
+   */
+  t?: FileTreeTranslate;
 }
 
 /** All possible event types emitted by the file tree. */

@@ -1,4 +1,4 @@
-export { FileTree } from "./FileTree";
+export { FileTree, defaultStrings } from "./FileTree";
 export {
   createNode,
   normalizePath,
@@ -19,4 +19,6 @@ export type {
   ToolbarButton,
   ContextMenuOptions,
   ContextMenuItem,
+  FileTreeStringKey,
+  FileTreeTranslate,
 } from "./types";

@@ -171,6 +171,43 @@ interface ContextMenuItem {
 }
 ```
 
+## i18n
+
+The built-in UI strings (toolbar tooltips and context menu labels) are in English by default. To localize them, pass a translation function via the `t` option. It receives a `FileTreeStringKey` and returns the string to display:
+
+```typescript
+import { FileTree, type FileTreeStringKey } from "@live-codes/file-tree";
+
+const strings: Record<FileTreeStringKey, string> = {
+  newFile: "Nouveau fichier",
+  newFolder: "Nouveau dossier",
+  expandAll: "Tout déplier",
+  collapseAll: "Tout replier",
+  copyPath: "Copier le chemin",
+  rename: "Renommer",
+  delete: "Supprimer",
+};
+
+const tree = new FileTree("#container", {
+  data: [...],
+  t: (key) => strings[key],
+});
+```
+
+The library never tracks or manages languages — it only calls your function. If `t` returns `undefined` for a key, the built-in English string is used as a fallback. The English defaults are exported as `defaultStrings` and can be used to build a full locale object:
+
+```typescript
+import { defaultStrings, type FileTreeStringKey } from "@live-codes/file-tree";
+
+const strings: Record<FileTreeStringKey, string> = {
+  ...defaultStrings,
+  newFile: "Nuevo archivo",
+  // only override what you need
+};
+```
+
+Custom toolbar buttons and context menu items are entirely user-supplied, so their `label`s are never passed through `t` — translate them yourself.
+
 ## Methods
 
 ### Tree Navigation

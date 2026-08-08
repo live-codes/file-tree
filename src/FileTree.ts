@@ -40,7 +40,20 @@ import type {
   Direction,
   ToolbarOptions,
   ContextMenuOptions,
+  FileTreeStringKey,
+  FileTreeTranslate,
 } from "./types";
+
+/** Built-in English strings used when no `t` function is provided. */
+export const defaultStrings: Record<FileTreeStringKey, string> = {
+  newFile: "New File",
+  newFolder: "New Folder",
+  expandAll: "Expand All",
+  collapseAll: "Collapse All",
+  copyPath: "Copy Path",
+  rename: "Rename",
+  delete: "Delete",
+};
 
 const DEFAULT_OPTIONS: Required<FileTreeOptions> = {
   data: [],
@@ -66,6 +79,7 @@ const DEFAULT_OPTIONS: Required<FileTreeOptions> = {
   },
   icons: {},
   sort: true,
+  t: (key: FileTreeStringKey): string => defaultStrings[key],
 };
 
 export class FileTree {
@@ -89,6 +103,7 @@ export class FileTree {
   private nameIconMap: Record<string, string>;
   private renamingPath: string | null = null;
   private pendingNewNodePath: string | null = null;
+  private t: FileTreeTranslate;
 
   // ── Constructor ─────────────────────────────────────────
 
@@ -103,6 +118,8 @@ export class FileTree {
 
     this.options = this.mergeOptions(options);
     this.data = normalizeData(this.options.data);
+    this.t = (key: FileTreeStringKey): string =>
+      this.options.t(key) ?? defaultStrings[key];
     this.iconMap = { ...defaultIconMap, ...this.options.icons };
     this.nameIconMap = { ...defaultNameIconMap };
 
@@ -182,6 +199,7 @@ export class FileTree {
               },
       icons: opts.icons ?? DEFAULT_OPTIONS.icons,
       sort: opts.sort ?? DEFAULT_OPTIONS.sort,
+      t: opts.t ?? DEFAULT_OPTIONS.t,
     };
   }
 
@@ -194,24 +212,28 @@ export class FileTree {
 
     if (cfg.createFile) {
       tb.appendChild(
-        this.toolbarBtn("New File", newFile, () => this.createNewNode("file")),
+        this.toolbarBtn(this.t("newFile"), newFile, () =>
+          this.createNewNode("file"),
+        ),
       );
     }
     if (cfg.createFolder) {
       tb.appendChild(
-        this.toolbarBtn("New Folder", newFolder, () =>
+        this.toolbarBtn(this.t("newFolder"), newFolder, () =>
           this.createNewNode("folder"),
         ),
       );
     }
     if (cfg.expandAll) {
       tb.appendChild(
-        this.toolbarBtn("Expand All", expandAllIcon, () => this.expandAll()),
+        this.toolbarBtn(this.t("expandAll"), expandAllIcon, () =>
+          this.expandAll(),
+        ),
       );
     }
     if (cfg.collapseAll) {
       tb.appendChild(
-        this.toolbarBtn("Collapse All", collapseAllIcon, () =>
+        this.toolbarBtn(this.t("collapseAll"), collapseAllIcon, () =>
           this.collapseAll(),
         ),
       );
@@ -473,7 +495,7 @@ export class FileTree {
     if (nodeData.type === "folder" && cfg.createFile) {
       entries.push({
         id: "create-file",
-        label: "New File",
+        label: this.t("newFile"),
         icon: newFile,
         onClick: () => this.createNewNode("file", path),
       });
@@ -482,7 +504,7 @@ export class FileTree {
     if (nodeData.type === "folder" && cfg.createFolder) {
       entries.push({
         id: "create-folder",
-        label: "New Folder",
+        label: this.t("newFolder"),
         icon: newFolder,
         onClick: () => this.createNewNode("folder", path),
       });
@@ -504,7 +526,7 @@ export class FileTree {
     if (cfg.copy) {
       entries.push({
         id: "copy-path",
-        label: "Copy Path",
+        label: this.t("copyPath"),
         icon: copyIcon,
         onClick: () => {
           navigator.clipboard?.writeText(path).catch(() => {});
@@ -515,7 +537,7 @@ export class FileTree {
     if (cfg.rename) {
       entries.push({
         id: "rename",
-        label: "Rename",
+        label: this.t("rename"),
         icon: editIcon,
         shortcut: "F2",
         onClick: () => this.startRename(path),
@@ -525,7 +547,7 @@ export class FileTree {
     if (cfg.delete) {
       entries.push({
         id: "delete",
-        label: "Delete",
+        label: this.t("delete"),
         icon: trashIcon,
         shortcut: "Del",
         onClick: () => this.deleteNode(path),
