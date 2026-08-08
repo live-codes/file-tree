@@ -94,6 +94,13 @@ export interface FileTreeOptions {
   /** Enable drag and drop. Default: `true`. */
   dragAndDrop?: boolean;
   /**
+   * Disable all edits via the UI: keyboard shortcuts, the context menu
+   * and drag & drop. Toolbar buttons that create files/folders are also
+   * hidden, and double-click rename is disabled. Programmatic methods
+   * (`addNode`, `renameNode`, ...) remain available. Default: `false`.
+   */
+  readOnly?: boolean;
+  /**
    * Automatically inject the component's bundled stylesheet into
    * `document.head` (once) when the tree is created. Set to `false`
    * to manage the stylesheet yourself, e.g. by importing

@@ -68,6 +68,7 @@ const DEFAULT_OPTIONS: Required<FileTreeOptions> = {
   direction: "ltr",
   indent: 16,
   dragAndDrop: true,
+  readOnly: false,
   injectStyles: true,
   toolbar: {
     createFile: true,
@@ -163,7 +164,7 @@ export class FileTree {
     this.contextMenu = new ContextMenu(this.root);
 
     // Drag & drop
-    if (this.options.dragAndDrop) {
+    if (this.options.dragAndDrop && !this.options.readOnly) {
       this.dragDrop = new DragDrop(this.treeEl, {
         getNode: (path) => this.nodeMap.get(path),
         onMove: (src, tgt, pos) => this.handleDragMove(src, tgt, pos),
@@ -195,6 +196,7 @@ export class FileTree {
       direction: opts.direction ?? DEFAULT_OPTIONS.direction,
       indent: opts.indent ?? DEFAULT_OPTIONS.indent,
       dragAndDrop: opts.dragAndDrop ?? DEFAULT_OPTIONS.dragAndDrop,
+      readOnly: opts.readOnly ?? DEFAULT_OPTIONS.readOnly,
       injectStyles: opts.injectStyles ?? DEFAULT_OPTIONS.injectStyles,
       toolbar:
         opts.toolbar === undefined
@@ -227,14 +229,14 @@ export class FileTree {
     tb.className = "ft-toolbar";
     const cfg = this.options.toolbar as ToolbarOptions;
 
-    if (cfg.createFile) {
+    if (cfg.createFile && !this.options.readOnly) {
       tb.appendChild(
         this.toolbarBtn(this.t("newFile"), newFile, () =>
           this.createNewNode("file"),
         ),
       );
     }
-    if (cfg.createFolder) {
+    if (cfg.createFolder && !this.options.readOnly) {
       tb.appendChild(
         this.toolbarBtn(this.t("newFolder"), newFolder, () =>
           this.createNewNode("folder"),
@@ -317,7 +319,9 @@ export class FileTree {
     el.dataset.path = hNode.path;
     el.dataset.type = hNode.type;
     el.setAttribute("role", "treeitem");
-    if (this.options.dragAndDrop) el.draggable = true;
+    if (this.options.dragAndDrop && !this.options.readOnly) {
+      el.draggable = true;
+    }
 
     // Content row
     const contentEl = document.createElement("div");
@@ -394,7 +398,7 @@ export class FileTree {
 
     contentEl.addEventListener("dblclick", (e) => {
       e.stopPropagation();
-      if (this.renamingPath) return;
+      if (this.renamingPath || this.options.readOnly) return;
       if (
         this.options.contextMenu !== false &&
         (this.options.contextMenu as ContextMenuOptions).rename
@@ -502,7 +506,7 @@ export class FileTree {
   // ── Context Menu ────────────────────────────────────────
 
   private showContextMenu(path: string, x: number, y: number): void {
-    if (this.options.contextMenu === false) return;
+    if (this.options.contextMenu === false || this.options.readOnly) return;
     const cfg = this.options.contextMenu as ContextMenuOptions;
     const nodeData = this.data.find((d) => d.path === path);
     if (!nodeData) return;
@@ -1120,6 +1124,19 @@ export class FileTree {
 
   private onKeydown(e: KeyboardEvent): void {
     if (this.renamingPath) return;
+
+    // In read-only mode only pure navigation keys are handled — everything
+    // else (rename, delete, copy/cut/paste, ...) is ignored.
+    if (this.options.readOnly) {
+      const isNavKey =
+        e.key === "ArrowDown" ||
+        e.key === "ArrowUp" ||
+        e.key === "ArrowLeft" ||
+        e.key === "ArrowRight" ||
+        e.key === "Enter" ||
+        e.key === " ";
+      if (!isNavKey) return;
+    }
 
     const visible = this.getVisibleNodePaths();
     if (visible.length === 0) return;

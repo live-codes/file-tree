@@ -128,6 +128,7 @@ const tree = new FileTree("#container", {
 | `direction`   | `'ltr' \| 'rtl'`              | `'ltr'`   | Text direction                           |
 | `indent`      | `number`                      | `16`      | Pixels per indentation level             |
 | `dragAndDrop` | `boolean`                     | `true`    | Enable drag and drop                     |
+| `readOnly`    | `boolean`                     | `false`   | Disable all UI edits: keyboard shortcuts, context menu and drag & drop. Toolbar create buttons are hidden and double-click rename is disabled. Programmatic methods (`addNode`, `renameNode`, ...) still work |
 | `injectStyles` | `boolean`                    | `true`    | Inject the bundled CSS into `document.head` automatically. Set to `false` to manage styles manually (e.g. import `@live-codes/file-tree/styles.css`) |
 | `toolbar`     | `ToolbarOptions \| false`     | See below | Toolbar configuration                    |
 | `contextMenu` | `ContextMenuOptions \| false` | See below | Context menu configuration               |
@@ -316,6 +317,19 @@ interface FileTreeEvent {
 | `Ctrl/Cmd + C`    | Copy selected node                   |
 | `Ctrl/Cmd + X`    | Cut selected node                    |
 | `Ctrl/Cmd + V`    | Paste clipboard into selected folder |
+
+## Read-Only Mode
+
+Pass `readOnly: true` to disable every way of editing the tree from the UI — keyboard shortcuts (rename, delete, copy/cut/paste), the context menu, double-click rename, toolbar create buttons and drag & drop:
+
+```typescript
+const tree = new FileTree("#container", {
+  data: [...],
+  readOnly: true, // view-only tree
+});
+```
+
+Navigation (arrow keys, selection, expand/collapse) still works, and the programmatic API (`addNode`, `renameNode`, `moveNode`, `copyNode`, `removeNode`, ...) remains fully available.
 
 ## CSS Customization
 
