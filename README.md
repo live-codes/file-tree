@@ -14,7 +14,6 @@ npm install @live-codes/file-tree
 
 ```typescript
 import { FileTree } from "@live-codes/file-tree";
-import "@live-codes/file-tree/styles.css";
 
 const tree = new FileTree("#container", {
   data: [
@@ -43,6 +42,18 @@ tree.on("change", (e) => console.log("Tree changed:", e.tree));
 ```
 
 Parent folders are **automatically created** from paths. In the example above, the `src` and `src/utils` folders are inferred from the file paths — you don't need to declare them.
+
+**Styles are injected automatically.** The component's CSS is bundled and added to `document.head` (as a `<style id="ft-styles">` tag) the first time you create a `FileTree` — no separate stylesheet import needed. If you prefer to manage the stylesheet yourself, pass `injectStyles: false` to the constructor and import `@live-codes/file-tree/styles.css` directly:
+
+```typescript
+import { FileTree } from "@live-codes/file-tree";
+import "@live-codes/file-tree/styles.css";
+
+const tree = new FileTree("#container", {
+  injectStyles: false, // manage styles manually
+  data: [...],
+});
+```
 
 You can also declare folders explicitly when you want empty folders or want to attach metadata:
 
@@ -117,6 +128,7 @@ const tree = new FileTree("#container", {
 | `direction`   | `'ltr' \| 'rtl'`              | `'ltr'`   | Text direction                           |
 | `indent`      | `number`                      | `16`      | Pixels per indentation level             |
 | `dragAndDrop` | `boolean`                     | `true`    | Enable drag and drop                     |
+| `injectStyles` | `boolean`                    | `true`    | Inject the bundled CSS into `document.head` automatically. Set to `false` to manage styles manually (e.g. import `@live-codes/file-tree/styles.css`) |
 | `toolbar`     | `ToolbarOptions \| false`     | See below | Toolbar configuration                    |
 | `contextMenu` | `ContextMenuOptions \| false` | See below | Context menu configuration               |
 | `icons`       | `Record<string, string>`      | `{}`      | Custom file extension → SVG icon map     |

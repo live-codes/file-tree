@@ -93,6 +93,13 @@ export interface FileTreeOptions {
   indent?: number;
   /** Enable drag and drop. Default: `true`. */
   dragAndDrop?: boolean;
+  /**
+   * Automatically inject the component's bundled stylesheet into
+   * `document.head` (once) when the tree is created. Set to `false`
+   * to manage the stylesheet yourself, e.g. by importing
+   * `@live-codes/file-tree/styles.css`. Default: `true`.
+   */
+  injectStyles?: boolean;
   /** Toolbar configuration. Set to `false` to hide. */
   toolbar?: ToolbarOptions | false;
   /** Context menu configuration. Set to `false` to disable. */

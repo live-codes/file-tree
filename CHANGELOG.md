@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Styles are now injected into `document.head` automatically when a `FileTree` is created, so importing `@live-codes/file-tree/styles.css` is no longer required (the stylesheet is still exported for manual use).
+- New `injectStyles: false` option disables automatic style injection, letting consumers manage the stylesheet themselves.
+
 ## 0.1.0 (2026-03-06)
 
 ### Features

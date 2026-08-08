@@ -1,4 +1,5 @@
 import { EventEmitter } from "./EventEmitter";
+import { injectStyles } from "./styles";
 import { ContextMenu, type ContextMenuEntry } from "./ContextMenu";
 import { DragDrop, type DropPosition } from "./DragDrop";
 import {
@@ -67,6 +68,7 @@ const DEFAULT_OPTIONS: Required<FileTreeOptions> = {
   direction: "ltr",
   indent: 16,
   dragAndDrop: true,
+  injectStyles: true,
   toolbar: {
     createFile: true,
     createFolder: true,
@@ -132,6 +134,11 @@ export class FileTree {
     this.iconMap = { ...defaultIconMap, ...this.options.icons };
     this.nameIconMap = { ...defaultNameIconMap };
 
+    // Inject the bundled stylesheet into the document once (unless disabled).
+    if (this.options.injectStyles) {
+      injectStyles();
+    }
+
     // Root element
     this.root = document.createElement("div");
     this.root.className = "ft-root";
@@ -188,6 +195,7 @@ export class FileTree {
       direction: opts.direction ?? DEFAULT_OPTIONS.direction,
       indent: opts.indent ?? DEFAULT_OPTIONS.indent,
       dragAndDrop: opts.dragAndDrop ?? DEFAULT_OPTIONS.dragAndDrop,
+      injectStyles: opts.injectStyles ?? DEFAULT_OPTIONS.injectStyles,
       toolbar:
         opts.toolbar === undefined
           ? DEFAULT_OPTIONS.toolbar
