@@ -434,6 +434,19 @@ import {
 
 All modern browsers (Chrome, Firefox, Safari, Edge). Uses standard HTML5 Drag and Drop API and CSS custom properties.
 
+## Development
+
+```bash
+npm install          # install dependencies
+npm run dev          # watch mode build
+npm test             # run the test suite (Vitest + jsdom)
+npm run test:watch   # run tests in watch mode
+npm run test:coverage # run tests with coverage report + thresholds
+npm run typecheck    # type-check src and tests
+npm run lint         # lint src and tests
+npm run build        # production build
+```
+
 ## License
 
 MIT
