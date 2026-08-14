@@ -118,6 +118,27 @@ const tree = new FileTree("#container", {
 });
 ```
 
+### Creating Nested Paths on the Fly
+
+When creating a file or folder through the UI (toolbar buttons, context menu) or renaming one (double-click, `F2`, or the `renameNode` API), you can type a name containing slashes and the intermediate folders are created automatically:
+
+```typescript
+tree.renameNode("logo.svg", "images/logo.svg"); // file
+// Creates: { path: "images", type: "folder" }, { path: "images/logo.svg", type: "file" }
+```
+
+```typescript
+tree.renameNode("src", "components/ui"); // folder
+// Renames: src → components/ui (and moves any children along)
+```
+
+A few rules apply:
+
+- Slashes are only allowed in names entered through **create/rename** flows. Existing nodes with nested paths (from `data` or `addNode`) keep working as before.
+- Renaming a **file** to `dir/file.txt` creates the `dir` folder and moves the file into it.
+- Renaming a **folder** to `a/b` moves the folder (and its contents) to `b` under new folder `a`. A folder cannot be renamed inside itself (e.g. `a` → `a/b`).
+- Backslashes (`\`) are rejected — they are treated as path separators on Windows.
+
 ## Options
 
 | Option        | Type                          | Default   | Description                              |
@@ -246,7 +267,7 @@ Custom toolbar buttons and context menu items are entirely user-supplied, so the
 | ---------------------------------------- | ------------------------------------------------------------ |
 | `addNode(node)`                          | Add a node (parent folders auto-created from path)           |
 | `removeNode(path)`                       | Remove a node and its descendants                            |
-| `renameNode(path, newName)`              | Rename a node (changes only the last path segment)           |
+| `renameNode(path, newName)`              | Rename a node (changes only the last path segment; slashes in `newName` create intermediate folders on the fly) |
 | `moveNode(sourcePath, targetParentPath)` | Move a node to a new parent folder (`''` or `null` for root) |
 | `copyNode(sourcePath, targetParentPath)` | Copy a node to a new parent folder; returns the new path     |
 | `setData(data)`                          | Replace the entire tree                                      |

@@ -30,6 +30,7 @@ import {
   updatePathsInData,
   updatePathsInSet,
   isDescendant,
+  createNode,
 } from "./utils";
 import type {
   FileTreeNodeData,
@@ -819,6 +820,21 @@ export class FileTree {
         const parentPath = getParentPath(path);
         const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
+        // A name containing slashes creates intermediate folders on the fly.
+        if (newName.includes("/")) {
+          if (
+            !this.renameToNestedPath(
+              path,
+              newPath,
+              this.pendingNewNodePath === path,
+              "ui",
+            )
+          ) {
+            this.handleRenameCancel(path);
+          }
+          return;
+        }
+
         // Check for name conflict
         if (this.data.some((d) => d.path === newPath && d.path !== path)) {
           this.handleRenameCancel(path);
@@ -898,7 +914,7 @@ export class FileTree {
   }
 
   private isValidName(name: string): boolean {
-    return name.length > 0 && !/[/\\]/.test(name);
+    return name.length > 0 && !/\\/.test(name);
   }
 
   private updateSelectedPath(oldPath: string, newPath: string): void {
@@ -908,6 +924,56 @@ export class FileTree {
     } else if (this.selectedPath.startsWith(oldPath + "/")) {
       this.selectedPath = newPath + this.selectedPath.slice(oldPath.length);
     }
+  }
+
+  /**
+   * Rename a node to a new path containing slashes, creating intermediate
+   * folders on the fly. Returns `false` if the rename is invalid (conflict,
+   * or a folder renamed inside itself).
+   */
+  private renameToNestedPath(
+    oldPath: string,
+    newPath: string,
+    isNewNode: boolean,
+    source: FileTreeEventSource,
+  ): boolean {
+    // A folder cannot be moved inside itself (e.g. `a` → `a/b`).
+    if (isDescendant(oldPath, newPath)) return false;
+    if (this.data.some((d) => d.path === newPath)) return false;
+
+    if (isNewNode) {
+      // Committing a freshly created node: replace the temporary node with
+      // the full folder chain, keeping the node's original type on the end.
+      const oldType = this.data.find((d) => d.path === oldPath)?.type ?? "file";
+      this.data = this.data.filter((d) => d.path !== oldPath);
+      this.data.push(...createNode(newPath, oldType));
+      this.data = normalizeData(this.data);
+      this.pendingNewNodePath = null;
+      this.renamingPath = null;
+      this.fullRerender();
+      this.expandAncestors(newPath);
+      this.selectNode(newPath);
+      this.root.focus();
+      this.emitEvent("create", newPath, undefined, undefined, source);
+      this.emitChange(source);
+      return true;
+    }
+
+    // Regular rename: move the node (and descendants) to the new path.
+    // `normalizeData` auto-creates any missing intermediate folders.
+    updatePathsInData(this.data, oldPath, newPath);
+    updatePathsInSet(this.expandedNodes, oldPath, newPath);
+    this.updateSelectedPath(oldPath, newPath);
+    this.data = normalizeData(this.data);
+
+    this.renamingPath = null;
+    this.fullRerender();
+    this.expandAncestors(newPath);
+    this.selectNode(newPath, source);
+    this.root.focus();
+    this.emitEvent("rename", newPath, oldPath, undefined, source);
+    this.emitChange(source);
+    return true;
   }
 
   // ── Create ──────────────────────────────────────────────
@@ -1424,8 +1490,8 @@ export class FileTree {
 
     this.fullRerender();
 
-    const parentPath = getParentPath(normalized.path);
-    if (parentPath) this.expand(parentPath, "api");
+    // Expand all ancestors so auto-created parent folders are visible.
+    this.expandAncestors(normalized.path);
 
     this.emitEvent("create", normalized.path, undefined, undefined, "api");
     this.emitChange("api");
@@ -1452,6 +1518,12 @@ export class FileTree {
 
     if (newPath === p) return;
     if (this.data.some((d) => d.path === newPath)) return;
+
+    if (newName.includes("/")) {
+      // Slashes create intermediate folders on the fly.
+      this.renameToNestedPath(p, newPath, false, "api");
+      return;
+    }
 
     updatePathsInData(this.data, p, newPath);
     updatePathsInSet(this.expandedNodes, p, newPath);
