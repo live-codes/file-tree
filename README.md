@@ -294,6 +294,7 @@ Every event handler receives a `FileTreeEvent`:
 ```typescript
 interface FileTreeEvent {
   type: FileTreeEventType;
+  source: "ui" | "api"; // What triggered the event
   node: FileTreeNodeData; // The affected node
   path: string; // Current path (same as node.path)
   oldPath?: string; // Previous path (rename/move)
@@ -302,6 +303,20 @@ interface FileTreeEvent {
   tree: FileTreeNodeData[]; // Full flat data snapshot
   data?: { files: FileList; items: DataTransferItemList }; // Drag-and-drop
 }
+```
+
+`source` tells you whether the event was triggered by user interaction (`"ui"` — clicks, keyboard, context menu, drag & drop) or by a programmatic API call (`"api"` — `addNode`, `renameNode`, `moveNode`, `copyNode`, `removeNode`, `select`, ...). This lets you react differently to the same event depending on its origin:
+
+```typescript
+tree.on("delete", (e) => {
+  if (e.source === "ui") {
+    // User pressed Delete / context menu — show a confirmation
+    // dialog and call tree.removeNode() if confirmed.
+    e.preventDefault();
+  } else {
+    // Already deleted programmatically — nothing to do.
+  }
+});
 ```
 
 ## Keyboard Shortcuts

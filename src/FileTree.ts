@@ -36,6 +36,7 @@ import type {
   FileTreeOptions,
   FileTreeEvent,
   FileTreeEventType,
+  FileTreeEventSource,
   EventHandler,
   InternalNode,
   HierarchyNode,
@@ -439,7 +440,10 @@ export class FileTree {
 
   // ── Selection ───────────────────────────────────────────
 
-  private selectNode(path: string): void {
+  private selectNode(
+    path: string,
+    source: FileTreeEventSource = "ui",
+  ): void {
     if (this.selectedPath) {
       const prev = this.nodeMap.get(this.selectedPath);
       prev?.contentEl.classList.remove("ft-node__content--selected");
@@ -448,7 +452,7 @@ export class FileTree {
     const node = this.nodeMap.get(path);
     node?.contentEl.classList.add("ft-node__content--selected");
 
-    this.emitEvent("select", path);
+    this.emitEvent("select", path, undefined, undefined, source);
   }
 
   // ── Expand / Collapse ───────────────────────────────────
@@ -461,7 +465,7 @@ export class FileTree {
     }
   }
 
-  expand(path: string): void {
+  expand(path: string, source: FileTreeEventSource = "ui"): void {
     const p = normalizePath(path);
     const node = this.nodeMap.get(p);
     if (!node || node.data.type !== "folder") return;
@@ -473,10 +477,10 @@ export class FileTree {
     if (node.childrenEl) node.childrenEl.style.display = "";
     node.iconEl.innerHTML = this.resolveIcon(node.data, node.name, true);
 
-    this.emitEvent("expand", p);
+    this.emitEvent("expand", p, undefined, undefined, source);
   }
 
-  collapse(path: string): void {
+  collapse(path: string, source: FileTreeEventSource = "ui"): void {
     const p = normalizePath(path);
     const node = this.nodeMap.get(p);
     if (!node || node.data.type !== "folder") return;
@@ -488,18 +492,18 @@ export class FileTree {
     if (node.childrenEl) node.childrenEl.style.display = "none";
     node.iconEl.innerHTML = this.resolveIcon(node.data, node.name, false);
 
-    this.emitEvent("collapse", p);
+    this.emitEvent("collapse", p, undefined, undefined, source);
   }
 
-  expandAll(): void {
+  expandAll(source: FileTreeEventSource = "ui"): void {
     this.nodeMap.forEach((node) => {
-      if (node.data.type === "folder") this.expand(node.path);
+      if (node.data.type === "folder") this.expand(node.path, source);
     });
   }
 
-  collapseAll(): void {
+  collapseAll(source: FileTreeEventSource = "ui"): void {
     this.nodeMap.forEach((node) => {
-      if (node.data.type === "folder") this.collapse(node.path);
+      if (node.data.type === "folder") this.collapse(node.path, source);
     });
   }
 
@@ -715,7 +719,11 @@ export class FileTree {
    * the copy cannot be performed (invalid source, same location, or copying
    * into a descendant).
    */
-  copyNodeInternal(sourcePath: string, targetParentPath: string): string | null {
+  copyNodeInternal(
+    sourcePath: string,
+    targetParentPath: string,
+    source: FileTreeEventSource = "ui",
+  ): string | null {
     const src = normalizePath(sourcePath);
     const destPath = targetParentPath ? normalizePath(targetParentPath) : "";
     if (!this.data.some((d) => d.path === src)) return null;
@@ -752,10 +760,10 @@ export class FileTree {
     this.data = normalizeData([...this.data, ...copies]);
     if (destPath) this.expandedNodes.add(destPath);
     this.fullRerender();
-    this.selectNode(newPath);
-    this.emitEvent("create", newPath);
-    this.emitEvent("copy", newPath, src);
-    this.emitChange();
+    this.selectNode(newPath, source);
+    this.emitEvent("create", newPath, undefined, undefined, source);
+    this.emitEvent("copy", newPath, src, undefined, source);
+    this.emitChange(source);
 
     return newPath;
   }
@@ -1020,7 +1028,11 @@ export class FileTree {
     this.moveNodeInternal(sourcePath, newParentPath);
   }
 
-  private moveNodeInternal(sourcePath: string, newParentPath: string): void {
+  private moveNodeInternal(
+    sourcePath: string,
+    newParentPath: string,
+    source: FileTreeEventSource = "ui",
+  ): void {
     const sourceName = getName(sourcePath);
     const newPath = newParentPath
       ? `${newParentPath}/${sourceName}`
@@ -1040,10 +1052,10 @@ export class FileTree {
     if (newParentPath) this.expandedNodes.add(newParentPath);
 
     this.fullRerender();
-    this.selectNode(newPath);
+    this.selectNode(newPath, source);
 
-    this.emitEvent("move", newPath, oldPath);
-    this.emitChange();
+    this.emitEvent("move", newPath, oldPath, undefined, source);
+    this.emitChange(source);
   }
 
   private handleExternalDrop(
@@ -1061,7 +1073,13 @@ export class FileTree {
       }
     }
 
-    const event = this.emitEvent("drop", parentPath, undefined, entries);
+    const event = this.emitEvent(
+      "drop",
+      parentPath,
+      undefined,
+      entries,
+      "ui",
+    );
     if (event.defaultPrevented) return;
 
     const files = entries.files;
@@ -1325,6 +1343,7 @@ export class FileTree {
     path: string,
     oldPath?: string,
     data?: { files: FileList; items: DataTransferItemList },
+    source: FileTreeEventSource = "ui",
   ): FileTreeEvent {
     const nodeData = this.data.find((d) => d.path === path);
     const parentPath = getParentPath(path);
@@ -1334,6 +1353,7 @@ export class FileTree {
 
     const event: FileTreeEvent = {
       type,
+      source,
       node: nodeData ? { ...nodeData } : { path, type: "file" },
       path,
       oldPath,
@@ -1351,9 +1371,10 @@ export class FileTree {
     return event;
   }
 
-  private emitChange(): void {
+  private emitChange(source: FileTreeEventSource = "ui"): void {
     const event: FileTreeEvent = {
       type: "change",
+      source,
       node: { path: "", type: "folder" },
       path: "",
       parentPath: "",
@@ -1404,10 +1425,10 @@ export class FileTree {
     this.fullRerender();
 
     const parentPath = getParentPath(normalized.path);
-    if (parentPath) this.expand(parentPath);
+    if (parentPath) this.expand(parentPath, "api");
 
-    this.emitEvent("create", normalized.path);
-    this.emitChange();
+    this.emitEvent("create", normalized.path, undefined, undefined, "api");
+    this.emitChange("api");
   }
 
   /**
@@ -1419,7 +1440,7 @@ export class FileTree {
   removeNode(path: string): void {
     const p = normalizePath(path);
     this.removeNodeInternal(p);
-    this.emitChange();
+    this.emitChange("api");
   }
 
   renameNode(path: string, newName: string): void {
@@ -1438,14 +1459,14 @@ export class FileTree {
 
     this.fullRerender();
 
-    this.emitEvent("rename", newPath, p);
-    this.emitChange();
+    this.emitEvent("rename", newPath, p, undefined, "api");
+    this.emitChange("api");
   }
 
   moveNode(sourcePath: string, targetParentPath: string | null): void {
     const src = normalizePath(sourcePath);
     const tgt = targetParentPath ? normalizePath(targetParentPath) : "";
-    this.moveNodeInternal(src, tgt);
+    this.moveNodeInternal(src, tgt, "api");
   }
 
   /**
@@ -1459,7 +1480,7 @@ export class FileTree {
   ): string | null {
     const src = normalizePath(sourcePath);
     const tgt = targetParentPath ? normalizePath(targetParentPath) : "";
-    return this.copyNodeInternal(src, tgt);
+    return this.copyNodeInternal(src, tgt, "api");
   }
 
   select(path: string): void {
@@ -1468,7 +1489,7 @@ export class FileTree {
 
     this.expandAncestors(p);
 
-    this.selectNode(p);
+    this.selectNode(p, "api");
     this.scrollIntoView(p);
   }
 

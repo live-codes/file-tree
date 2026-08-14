@@ -136,10 +136,15 @@ export type FileTreeEventType =
   | "drop"
   | "change";
 
+/** Who triggered the event: the user interacting with the UI, or a programmatic API call. */
+export type FileTreeEventSource = "ui" | "api";
+
 /** Payload included with every emitted event. */
 export interface FileTreeEvent {
   /** The type of event. */
   type: FileTreeEventType;
+  /** Whether this event was triggered by the UI or by the API. */
+  source: FileTreeEventSource;
   /** The node involved in this event. */
   node: FileTreeNodeData;
   /** Full path of the node. Same as `node.path`. */
