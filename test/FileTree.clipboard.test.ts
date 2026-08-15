@@ -42,10 +42,31 @@ describe("copy / paste", () => {
     tree.destroy();
   });
 
-  it("returns null when copying to the same parent", () => {
+  it("duplicates a file when copying to the same parent", () => {
     const tree = createTree({ data: DATA });
-    // src is already at root; copying to root is a no-op.
-    expect(tree.copyNode("src", "")).toBeNull();
+    const newPath = tree.copyNode("src/index.ts", "src");
+    expect(newPath).toBe("src/index copy.ts");
+    expect(paths(tree)).toContain("src/index copy.ts");
+    expect(paths(tree)).toContain("src/index.ts");
+    tree.destroy();
+  });
+
+  it("duplicates a folder with descendants when copying to the same parent", () => {
+    const tree = createTree({ data: DATA });
+    const newPath = tree.copyNode("src", "");
+    expect(newPath).toBe("src copy");
+    expect(paths(tree)).toContain("src copy");
+    expect(paths(tree)).toContain("src copy/index.ts");
+    expect(paths(tree)).toContain("src copy/lib/util.ts");
+    expect(paths(tree)).toContain("src");
+    tree.destroy();
+  });
+
+  it("resolves a unique name when the ' copy' name is already taken", () => {
+    const tree = createTree({ data: DATA });
+    tree.addNode({ path: "src/index copy.ts", type: "file" });
+    const newPath = tree.copyNode("src/index.ts", "src");
+    expect(newPath).toBe("src/index copy-1.ts");
     tree.destroy();
   });
 
@@ -74,6 +95,28 @@ describe("copy / paste", () => {
     tree.pasteNode();
     expect(paths(tree)).toContain("backup/util.ts");
     expect(tree.getNode("src/lib/util.ts")).toBeDefined();
+    tree.destroy();
+  });
+
+  it("copyToClipboard + pasteNode duplicates a node into the same folder", () => {
+    const tree = createTree({ data: DATA });
+    tree.copyToClipboard("src/lib/util.ts");
+    tree.select("src/lib");
+    tree.pasteNode();
+    expect(paths(tree)).toContain("src/lib/util copy.ts");
+    expect(tree.getNode("src/lib/util.ts")).toBeDefined();
+    tree.destroy();
+  });
+
+  it("copyToClipboard + pasteNode duplicates a selected folder in its parent", () => {
+    const tree = createTree({ data: DATA });
+    tree.copyToClipboard("src");
+    tree.select("src");
+    tree.pasteNode();
+    expect(paths(tree)).toContain("src copy");
+    expect(paths(tree)).toContain("src copy/index.ts");
+    expect(paths(tree)).toContain("src copy/lib/util.ts");
+    expect(tree.getNode("src")).toBeDefined();
     tree.destroy();
   });
 });

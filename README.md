@@ -269,7 +269,7 @@ Custom toolbar buttons and context menu items are entirely user-supplied, so the
 | `removeNode(path)`                       | Remove a node and its descendants                            |
 | `renameNode(path, newName)`              | Rename a node (changes only the last path segment; slashes in `newName` create intermediate folders on the fly) |
 | `moveNode(sourcePath, targetParentPath)` | Move a node to a new parent folder (`''` or `null` for root) |
-| `copyNode(sourcePath, targetParentPath)` | Copy a node to a new parent folder; returns the new path     |
+| `copyNode(sourcePath, targetParentPath)` | Copy a node to a new parent folder (`''` or `null` for root); copying to the same location duplicates it with a ` copy` suffix before the extension (e.g. `index copy.ts`); returns the new path |
 | `setData(data)`                          | Replace the entire tree                                      |
 | `getData()`                              | Get a clone of the flat data array                           |
 | `getNode(path)`                          | Get a single node by path                                    |

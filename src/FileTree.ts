@@ -674,37 +674,21 @@ export class FileTree {
         targetData?.type === "folder" ? targetPath : getParentPath(targetPath);
     } else if (this.selectedPath) {
       const selData = this.data.find((d) => d.path === this.selectedPath);
-      destPath =
-        selData?.type === "folder"
-          ? selData.path
-          : getParentPath(this.selectedPath);
-    }
-
-    // Guard: pasting into a descendant of the copied node (or into itself).
-    if (type === "copy") {
-      const destIsInSrc =
-        destPath === src ||
-        (destPath !== "" && isDescendant(src, destPath)) ||
-        (destPath !== "" && isDescendant(destPath, src));
-      if (destIsInSrc) return;
-    }
-
-    // Resolve a unique name in the destination.
-    const srcName = getName(src);
-    let newPath = destPath ? `${destPath}/${srcName}` : srcName;
-    if (newPath === src) return;
-    let counter = 1;
-    while (this.data.some((d) => d.path === newPath)) {
-      const ext = getExtension(srcName);
-      const baseName = ext ? srcName.slice(0, -(ext.length + 1)) : srcName;
-      newPath = destPath
-        ? `${destPath}/${baseName}-${counter}${ext ? "." + ext : ""}`
-        : `${baseName}-${counter}${ext ? "." + ext : ""}`;
-      counter++;
+      if (selData?.type === "folder") {
+        // Pasting while a folder is selected targets that folder's parent,
+        // unless it is the clipboard source itself (same location → duplicate).
+        destPath =
+          selData.path === src ? getParentPath(selData.path) : selData.path;
+      } else {
+        destPath = getParentPath(this.selectedPath);
+      }
     }
 
     if (type === "copy") {
-      // Clone the node (and descendants) into the destination folder.
+      // Guard against pasting into a descendant of the copied node.
+      // (Pasting into the source folder's own parent, i.e. same location,
+      // is allowed and duplicates the node with a ` copy` suffix.)
+      if (destPath !== "" && isDescendant(src, destPath)) return;
       this.copyNodeInternal(src, destPath);
     } else {
       // Cut: move the node (and descendants) to the destination.
@@ -716,9 +700,9 @@ export class FileTree {
 
   /**
    * Duplicate a node (and its descendants) into a target parent folder.
-   * Resolves a unique name on conflict. Returns the new path, or `null` if
-   * the copy cannot be performed (invalid source, same location, or copying
-   * into a descendant).
+   * Copies to the same location resolve a unique name by appending
+   * ` copy` (or ` copy-1`, ...). Returns the new path, or `null` if the
+   * copy cannot be performed (invalid source, or copying into a descendant).
    */
   copyNodeInternal(
     sourcePath: string,
@@ -729,24 +713,28 @@ export class FileTree {
     const destPath = targetParentPath ? normalizePath(targetParentPath) : "";
     if (!this.data.some((d) => d.path === src)) return null;
 
-    // Guard: copying into a descendant of the source (or into itself).
+    // Guard: copying into itself or into a descendant of the source.
     const destIsInSrc =
-      destPath === src ||
-      (destPath !== "" && isDescendant(src, destPath)) ||
-      (destPath !== "" && isDescendant(destPath, src));
+      destPath === src || (destPath !== "" && isDescendant(src, destPath));
     if (destIsInSrc) return null;
 
     // Resolve a unique name in the destination.
     const srcName = getName(src);
     let newPath = destPath ? `${destPath}/${srcName}` : srcName;
-    if (newPath === src) return null;
+    const sameLocation = newPath === src;
+    const ext = getExtension(srcName);
+    const baseName = ext ? srcName.slice(0, -(ext.length + 1)) : srcName;
+    // Same-location copies duplicate with a ` copy` suffix before the extension.
+    if (sameLocation) {
+      newPath = `${destPath ? `${destPath}/` : ""}${baseName} copy${ext ? "." + ext : ""}`;
+    }
     let counter = 1;
     while (this.data.some((d) => d.path === newPath)) {
-      const ext = getExtension(srcName);
-      const baseName = ext ? srcName.slice(0, -(ext.length + 1)) : srcName;
-      newPath = destPath
-        ? `${destPath}/${baseName}-${counter}${ext ? "." + ext : ""}`
-        : `${baseName}-${counter}${ext ? "." + ext : ""}`;
+      newPath = sameLocation
+        ? `${destPath ? `${destPath}/` : ""}${baseName} copy-${counter}${ext ? "." + ext : ""}`
+        : destPath
+          ? `${destPath}/${baseName}-${counter}${ext ? "." + ext : ""}`
+          : `${baseName}-${counter}${ext ? "." + ext : ""}`;
       counter++;
     }
 
@@ -1543,7 +1531,9 @@ export class FileTree {
 
   /**
    * Copy a node (and its descendants) to a new parent folder
-   * (`''` or `null` for root). Emits `copy` and `create` events.
+   * (`''` or `null` for root). Copying to the same location duplicates
+   * the node with a unique name (` copy` before the extension, e.g.
+   * `index copy.ts`). Emits `copy` and `create` events.
    * Returns the new path, or `null` if the copy cannot be performed.
    */
   copyNode(
