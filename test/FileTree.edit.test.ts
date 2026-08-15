@@ -37,6 +37,26 @@ describe("creating nodes via toolbar", () => {
     tree.destroy();
   });
 
+  it("keeps the new folder when the default name is committed unchanged", () => {
+    const tree = createTree({ data: DATA });
+    const btn = query(rootOf(tree), ".ft-toolbar__btn[title='New Folder']")!;
+    btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(renameInput(tree)?.value).toBe("new-folder");
+    commitRename(tree, "new-folder");
+    expect(tree.getNode("new-folder")?.type).toBe("folder");
+    tree.destroy();
+  });
+
+  it("keeps the new file when the default name is committed unchanged", () => {
+    const tree = createTree({ data: DATA });
+    const btn = query(rootOf(tree), ".ft-toolbar__btn[title='New File']")!;
+    btn.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(renameInput(tree)?.value).toBe("untitled");
+    commitRename(tree, "untitled");
+    expect(tree.getNode("untitled")?.type).toBe("file");
+    tree.destroy();
+  });
+
   it("emits create + change events when committing a new node", () => {
     const tree = createTree({ data: DATA });
     const created: string[] = [];

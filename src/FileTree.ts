@@ -816,20 +816,20 @@ export class FileTree {
       if (this.renamingPath !== path) return; // Already handled
 
       const newName = input.value.trim();
-      if (newName && newName !== currentName && this.isValidName(newName)) {
+      const isNewNode = this.pendingNewNodePath === path;
+      // Committing a fresh node with an unchanged name keeps it; a regular
+      // rename with an unchanged name is a no-op.
+      if (
+        newName &&
+        this.isValidName(newName) &&
+        (isNewNode || newName !== currentName)
+      ) {
         const parentPath = getParentPath(path);
         const newPath = parentPath ? `${parentPath}/${newName}` : newName;
 
         // A name containing slashes creates intermediate folders on the fly.
         if (newName.includes("/")) {
-          if (
-            !this.renameToNestedPath(
-              path,
-              newPath,
-              this.pendingNewNodePath === path,
-              "ui",
-            )
-          ) {
+          if (!this.renameToNestedPath(path, newPath, isNewNode, "ui")) {
             this.handleRenameCancel(path);
           }
           return;
@@ -841,7 +841,7 @@ export class FileTree {
           return;
         }
 
-        if (this.pendingNewNodePath === path) {
+        if (isNewNode) {
           // Committing a newly created node
           updatePathsInData(this.data, path, newPath);
           updatePathsInSet(this.expandedNodes, path, newPath);
