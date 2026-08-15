@@ -27,7 +27,16 @@ export interface ContextMenuItem {
   shortcut?: string;
   /** Whether this item should appear for a given node. Defaults to always visible. */
   visible?: (node: FileTreeNodeData) => boolean;
-  onClick: (node: FileTreeNodeData) => void;
+  /**
+   * Called when the item is clicked. `nodes` is the array of nodes the
+   * operation applies to (all selected nodes, or just the right-clicked
+   * node when it is not part of a multi-selection). `primaryNode` is the
+   * node the context menu was opened on.
+   */
+  onClick: (
+    nodes: FileTreeNodeData[],
+    primaryNode: FileTreeNodeData,
+  ) => void;
 }
 
 export interface ToolbarOptions {
@@ -83,8 +92,8 @@ export type FileTreeTranslate = (key: FileTreeStringKey) => string;
 export interface FileTreeOptions {
   /** Initial tree data (flat array). Parent folders are auto-created from paths. */
   data?: FileTreeNodeData[];
-  /** Path of the initially selected node. Parent folders are auto-expanded. */
-  selected?: string;
+  /** Path (or array of paths) of the initially selected node(s). Parent folders are auto-expanded. */
+  selected?: string | string[];
   /** Color theme. Default: `'dark'`. */
   theme?: Theme;
   /** Text direction. Default: `'ltr'`. */
@@ -151,6 +160,14 @@ export interface FileTreeEvent {
   path: string;
   /** Previous path, for rename and move events. */
   oldPath?: string;
+  /**
+   * All affected node paths for multi-node operations (e.g. deleting a
+   * multi-selection). Single-node fields (`path`, `node`) always refer to
+   * the first entry. Absent for single-node events.
+   */
+  paths?: string[];
+  /** Node data for each path in `paths`. */
+  nodes?: FileTreeNodeData[];
   /** Parent folder path. Empty string for root-level nodes. */
   parentPath: string;
   /** Parent node data, or `null` for root-level nodes. */

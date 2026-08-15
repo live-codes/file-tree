@@ -40,6 +40,7 @@ function setup(nodes: TestNode[] = [{ path: "a.ts", type: "file" }, { path: "src
   const onExternalDrop = vi.fn();
   const dd = new DragDrop(treeEl, {
     getNode: (path) => nodeMap.get(path),
+    getDragPaths: (path) => [path],
     onMove,
     onExternalDrop,
   });
@@ -97,7 +98,7 @@ describe("DragDrop", () => {
     // drop
     const drop = dragEvent("drop", { dataTransfer: dt });
     treeEl.dispatchEvent(drop);
-    expect(onMove).toHaveBeenCalledWith("a.ts", "src", "inside");
+    expect(onMove).toHaveBeenCalledWith(["a.ts"], "src", "inside");
   });
 
   it("computes 'before'/'after' positions from pointer y", () => {
@@ -124,7 +125,7 @@ describe("DragDrop", () => {
     treeEl.dispatchEvent(overTop);
     const dropTop = dragEvent("drop", { dataTransfer: dt });
     treeEl.dispatchEvent(dropTop);
-    expect(onMove).toHaveBeenCalledWith("a.ts", "b.ts", "before");
+    expect(onMove).toHaveBeenCalledWith(["a.ts"], "b.ts", "before");
     onMove.mockClear();
 
     // bottom half → after (re-drag: the previous drop cleared the drag state)
@@ -134,7 +135,7 @@ describe("DragDrop", () => {
     treeEl.dispatchEvent(overBottom);
     const dropBottom = dragEvent("drop", { dataTransfer: dt });
     treeEl.dispatchEvent(dropBottom);
-    expect(onMove).toHaveBeenCalledWith("a.ts", "b.ts", "after");
+    expect(onMove).toHaveBeenCalledWith(["a.ts"], "b.ts", "after");
   });
 
   it("does not allow dropping on self", () => {

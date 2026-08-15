@@ -244,7 +244,7 @@ describe("keyboard clipboard shortcuts", () => {
     const tree = createTree({ data: DATA });
     tree.select("src/index.ts");
     rootOf(tree).dispatchEvent(new KeyboardEvent("keydown", { key: "c", ctrlKey: true, bubbles: true }));
-    expect(tree["clipboard"]).toEqual({ path: "src/index.ts", type: "copy" });
+    expect(tree["clipboard"]).toEqual({ paths: ["src/index.ts"], type: "copy" });
     tree.select("src/lib");
     rootOf(tree).dispatchEvent(new KeyboardEvent("keydown", { key: "v", ctrlKey: true, bubbles: true }));
     expect(paths(tree)).toContain("src/lib/index.ts");

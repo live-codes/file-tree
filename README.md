@@ -205,7 +205,9 @@ interface ContextMenuItem {
   icon?: string;
   shortcut?: string;
   visible?: (node: FileTreeNodeData) => boolean;
-  onClick: (node: FileTreeNodeData) => void;
+  // `nodes` = all selected nodes (or just the right-clicked node when it is
+  // not part of a multi-selection); `primaryNode` = the right-clicked node.
+  onClick: (nodes: FileTreeNodeData[], primaryNode: FileTreeNodeData) => void;
 }
 ```
 
@@ -253,23 +255,27 @@ Custom toolbar buttons and context menu items are entirely user-supplied, so the
 
 ### Tree Navigation
 
-| Method           | Description          |
-| ---------------- | -------------------- |
-| `expand(path)`   | Expand a folder      |
-| `collapse(path)` | Collapse a folder    |
-| `expandAll()`    | Expand all folders   |
-| `collapseAll()`  | Collapse all folders |
-| `select(path)`   | Select a node        |
+| Method                       | Description                                                              |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `expand(path)`               | Expand a folder                                                          |
+| `collapse(path)`             | Collapse a folder                                                        |
+| `expandAll()`                | Expand all folders                                                       |
+| `collapseAll()`              | Collapse all folders                                                     |
+| `select(path \| string[])`   | Select a node (or multiple nodes); parents are auto-expanded             |
+| `selectAll()`                | Select every node in the tree                                            |
+| `clearSelection()`           | Clear the current selection                                              |
+| `getSelectedNode()`          | Get the primary (first) selected node, or `null`                         |
+| `getSelectedNodes()`         | Get all currently selected nodes as an array                             |
 
 ### Data Operations
 
 | Method                                   | Description                                                  |
 | ---------------------------------------- | ------------------------------------------------------------ |
 | `addNode(node)`                          | Add a node (parent folders auto-created from path)           |
-| `removeNode(path)`                       | Remove a node and its descendants                            |
+| `removeNode(path \| string[])`           | Remove node(s) and their descendants (not cancellable)       |
 | `renameNode(path, newName)`              | Rename a node (changes only the last path segment; slashes in `newName` create intermediate folders on the fly) |
-| `moveNode(sourcePath, targetParentPath)` | Move a node to a new parent folder (`''` or `null` for root) |
-| `copyNode(sourcePath, targetParentPath)` | Copy a node to a new parent folder (`''` or `null` for root); copying to the same location duplicates it with a ` copy` suffix before the extension (e.g. `index copy.ts`); returns the new path |
+| `moveNode(sourcePath \| string[], targetParentPath)` | Move node(s) to a new parent folder (`''` or `null` for root) |
+| `copyNode(sourcePath \| string[], targetParentPath)` | Copy node(s) to a new parent folder (`''` or `null` for root); copying to the same location duplicates them with a ` copy` suffix before the extension (e.g. `index copy.ts`); returns the new path(s) |
 | `setData(data)`                          | Replace the entire tree                                      |
 | `getData()`                              | Get a clone of the flat data array                           |
 | `getNode(path)`                          | Get a single node by path                                    |
@@ -299,14 +305,14 @@ tree.off(eventType, handler);
 
 | Event      | Fired when                                      |
 | ---------- | ----------------------------------------------- |
-| `select`   | A node is selected                              |
+| `select`   | The selection changes                           |
 | `expand`   | A folder is expanded                            |
 | `collapse` | A folder is collapsed                           |
 | `create`   | A new node is created (after name is committed) |
 | `copy`     | A node is copied                                |
 | `move`     | A node is moved                                 |
 | `rename`   | A node is renamed                               |
-| `delete`   | A node is deleted                               |
+| `delete`   | One or more nodes are deleted                   |
 | `drop`     | External files are dropped into the tree        |
 | `change`   | Any structural change to the tree data          |
 
@@ -316,15 +322,19 @@ Every event handler receives a `FileTreeEvent`:
 interface FileTreeEvent {
   type: FileTreeEventType;
   source: "ui" | "api"; // What triggered the event
-  node: FileTreeNodeData; // The affected node
+  node: FileTreeNodeData; // The affected node (first node for multi-node ops)
   path: string; // Current path (same as node.path)
   oldPath?: string; // Previous path (rename/move)
+  paths?: string[]; // All affected paths (multi-select delete/select, etc.)
+  nodes?: FileTreeNodeData[]; // Node data for each path in `paths`
   parentPath: string; // Parent folder path ('' for root)
   parentNode: FileTreeNodeData | null;
   tree: FileTreeNodeData[]; // Full flat data snapshot
   data?: { files: FileList; items: DataTransferItemList }; // Drag-and-drop
 }
 ```
+
+For multi-node operations (e.g. deleting a multi-selection), a **single** event is emitted with `paths`/`nodes` containing every affected node; `path`/`node` always refer to the first entry. Calling `preventDefault()` on a `delete` event cancels the whole batch.
 
 `source` tells you whether the event was triggered by user interaction (`"ui"` — clicks, keyboard, context menu, drag & drop) or by a programmatic API call (`"api"` — `addNode`, `renameNode`, `moveNode`, `copyNode`, `removeNode`, `select`, ...). This lets you react differently to the same event depending on its origin:
 
@@ -342,17 +352,24 @@ tree.on("delete", (e) => {
 
 ## Keyboard Shortcuts
 
-| Key               | Action                               |
-| ----------------- | ------------------------------------ |
-| `↑` / `↓`         | Navigate between visible nodes       |
-| `→`               | Expand folder or move to first child |
-| `←`               | Collapse folder or move to parent    |
-| `Enter` / `Space` | Toggle folder expand/collapse        |
-| `F2`              | Rename selected node                 |
-| `Delete`          | Delete selected node                 |
-| `Ctrl/Cmd + C`    | Copy selected node                   |
-| `Ctrl/Cmd + X`    | Cut selected node                    |
-| `Ctrl/Cmd + V`    | Paste clipboard into selected folder |
+| Key                     | Action                                       |
+| ----------------------- | -------------------------------------------- |
+| `↑` / `↓`               | Navigate between visible nodes               |
+| `Shift + ↑` / `↓`       | Extend selection by a range                  |
+| `Ctrl/Cmd + ↑` / `↓`    | Move focus without changing selection        |
+| `→`                     | Expand folder or move to first child         |
+| `←`                     | Collapse folder or move to parent            |
+| `Enter` / `Space`       | Toggle folder expand/collapse                |
+| `F2`                    | Rename selected node                         |
+| `Delete`                | Delete selected node(s)                      |
+| `Ctrl/Cmd + A`          | Select all nodes                             |
+| `Ctrl/Cmd + C`          | Copy selected node(s)                        |
+| `Ctrl/Cmd + X`          | Cut selected node(s)                         |
+| `Ctrl/Cmd + V`          | Paste clipboard into selected folder         |
+| `Ctrl/Cmd + Click`      | Toggle a node in the selection               |
+| `Shift + Click`         | Select a range from the anchor               |
+
+Operations (copy, cut, delete, move, drag) apply to **all** selected nodes. Dragging a selected node drags the whole selection. Right-clicking a node that is part of a multi-selection keeps the selection, so context-menu actions apply to all of it; right-clicking an unselected node replaces the selection.
 
 ## Read-Only Mode
 

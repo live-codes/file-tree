@@ -106,7 +106,12 @@ export class FileTree {
   private options: Required<FileTreeOptions>;
   private nodeMap = new Map<string, InternalNode>();
   private expandedNodes = new Set<string>();
-  private selectedPath: string | null = null;
+  /** All selected node paths. */
+  private selectedPaths = new Set<string>();
+  /** Anchor path for shift-range selection. */
+  private anchorPath: string | null = null;
+  /** Keyboard focus path (may differ from selection while ctrl+arrowing). */
+  private lastFocusPath: string | null = null;
   private emitter = new EventEmitter<
     Record<FileTreeEventType, FileTreeEvent>
   >();
@@ -116,8 +121,15 @@ export class FileTree {
   private nameIconMap: Record<string, string>;
   private renamingPath: string | null = null;
   private pendingNewNodePath: string | null = null;
-  private clipboard: { path: string; type: "copy" | "cut" } | null = null;
+  private clipboard: { paths: string[]; type: "copy" | "cut" } | null = null;
   private t: FileTreeTranslate;
+
+  /** Primary selected path (first in insertion order), for backward compat. */
+  private get selectedPath(): string | null {
+    return this.selectedPaths.size > 0
+      ? [...this.selectedPaths][0]
+      : null;
+  }
 
   // ── Constructor ─────────────────────────────────────────
 
@@ -169,6 +181,14 @@ export class FileTree {
     if (this.options.dragAndDrop && !this.options.readOnly) {
       this.dragDrop = new DragDrop(this.treeEl, {
         getNode: (path) => this.nodeMap.get(path),
+        getDragPaths: (path) => {
+          // Dragging a selected node drags the whole selection (minus any
+          // selected descendants of other selected nodes).
+          if (this.selectedPaths.has(path) && this.selectedPaths.size > 1) {
+            return this.getSelectedForOp();
+          }
+          return [path];
+        },
         onMove: (src, tgt, pos) => this.handleDragMove(src, tgt, pos),
         onExternalDrop: (entries, tgt, pos) =>
           this.handleExternalDrop(entries, tgt, pos),
@@ -394,7 +414,13 @@ export class FileTree {
     contentEl.addEventListener("click", (e) => {
       e.stopPropagation();
       if (this.renamingPath) return;
-      this.selectNode(nodePath);
+      if (e.shiftKey) {
+        this.selectNode(nodePath, "ui", "range");
+      } else if (e.ctrlKey || e.metaKey) {
+        this.selectNode(nodePath, "ui", "toggle");
+      } else {
+        this.selectNode(nodePath);
+      }
       if (isFolder) this.toggleExpand(nodePath);
     });
 
@@ -412,7 +438,11 @@ export class FileTree {
     contentEl.addEventListener("contextmenu", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.selectNode(nodePath);
+      // Right-clicking an already-selected node keeps the multi-selection;
+      // right-clicking an unselected node replaces the selection with it.
+      if (!this.selectedPaths.has(nodePath)) {
+        this.selectNode(nodePath);
+      }
       this.showContextMenu(nodePath, e.clientX, e.clientY);
     });
 
@@ -441,19 +471,126 @@ export class FileTree {
 
   // ── Selection ───────────────────────────────────────────
 
+  /** The ordered array of selected node paths. */
+  private selectedPathsArray(): string[] {
+    return [...this.selectedPaths];
+  }
+
+  /** Synchronize the `--selected` class and `aria-selected` across all nodes. */
+  private applySelectionClasses(): void {
+    this.nodeMap.forEach((node) => {
+      const selected = this.selectedPaths.has(node.path);
+      node.contentEl.classList.toggle(
+        "ft-node__content--selected",
+        selected,
+      );
+      node.el.setAttribute("aria-selected", String(selected));
+    });
+  }
+
+  private clearSelectionInternal(
+    source: FileTreeEventSource = "ui",
+    emit = true,
+  ): void {
+    this.selectedPaths.clear();
+    this.applySelectionClasses();
+    if (emit) this.emitSelectEvent(source);
+  }
+
+  private selectAllInternal(source: FileTreeEventSource = "ui"): void {
+    this.selectedPaths = new Set(this.nodeMap.keys());
+    if (this.selectedPaths.size > 0) {
+      this.anchorPath = this.selectedPath;
+      this.lastFocusPath = this.selectedPath;
+    }
+    this.applySelectionClasses();
+    this.emitSelectEvent(source);
+  }
+
+  /**
+   * Select `path` plus everything in the visible order between the anchor
+   * (or last focus) and `path`.
+   */
+  private rangeSelect(path: string, source: FileTreeEventSource = "ui"): void {
+    const from =
+      this.anchorPath && this.nodeMap.has(this.anchorPath)
+        ? this.anchorPath
+        : this.lastFocusPath ?? this.selectedPath ?? path;
+    // Reveal both endpoints so the range spans their visible siblings:
+    // expand the target's parents, and expand a collapsed folder endpoint.
+    this.expandAncestors(path);
+    this.expandAncestors(from);
+    const fromData = from ? this.data.find((d) => d.path === from) : undefined;
+    if (fromData?.type === "folder") this.expand(from);
+    const visible = this.getVisibleNodePaths();
+    const fromIdx = visible.indexOf(from);
+    const toIdx = visible.indexOf(path);
+    if (fromIdx === -1 || toIdx === -1) {
+      this.selectedPaths = new Set([path]);
+      this.anchorPath = path;
+    } else {
+      const [lo, hi] =
+        fromIdx <= toIdx ? [fromIdx, toIdx] : [toIdx, fromIdx];
+      this.selectedPaths = new Set(visible.slice(lo, hi + 1));
+      this.anchorPath = from;
+    }
+    this.lastFocusPath = path;
+    this.applySelectionClasses();
+    this.emitSelectEvent(source);
+  }
+
+  private emitSelectEvent(source: FileTreeEventSource): void {
+    const paths = this.selectedPathsArray();
+    const primary = paths[0] ?? "";
+    this.emitEvent("select", primary, undefined, undefined, source, paths);
+  }
+
   private selectNode(
     path: string,
     source: FileTreeEventSource = "ui",
+    mode: "replace" | "toggle" | "range" = "replace",
   ): void {
-    if (this.selectedPath) {
-      const prev = this.nodeMap.get(this.selectedPath);
-      prev?.contentEl.classList.remove("ft-node__content--selected");
+    switch (mode) {
+      case "toggle":
+        if (this.selectedPaths.has(path)) {
+          this.selectedPaths.delete(path);
+        } else {
+          this.selectedPaths.add(path);
+          this.anchorPath = path;
+        }
+        break;
+      case "range":
+        this.rangeSelect(path, source);
+        return;
+      case "replace":
+      default:
+        this.selectedPaths = new Set([path]);
+        this.anchorPath = path;
+        break;
     }
-    this.selectedPath = path;
-    const node = this.nodeMap.get(path);
-    node?.contentEl.classList.add("ft-node__content--selected");
+    this.lastFocusPath = path;
+    this.applySelectionClasses();
+    this.emitSelectEvent(source);
+  }
 
-    this.emitEvent("select", path, undefined, undefined, source);
+  /**
+   * Normalize an input (single path or array) into a deduped, sorted array.
+   * A path that is a descendant of another path in the list is dropped, so
+   * operations never process a node twice (e.g. a folder and its child).
+   */
+  private dedupePaths(paths: string | string[]): string[] {
+    const list = (Array.isArray(paths) ? paths : [paths])
+      .map((p) => normalizePath(p))
+      .filter(Boolean);
+    const unique = [...new Set(list)];
+    return unique.filter(
+      (p) => !unique.some((q) => q !== p && isDescendant(q, p)),
+    );
+  }
+
+  /** The selected paths to apply an operation to (deduped, sorted). */
+  private getSelectedForOp(): string[] {
+    return this.dedupePaths(this.selectedPathsArray());
   }
 
   // ── Expand / Collapse ───────────────────────────────────
@@ -516,6 +653,11 @@ export class FileTree {
     const nodeData = this.data.find((d) => d.path === path);
     if (!nodeData) return;
 
+    // Operations act on the whole selection; the right-clicked node is primary.
+    const selection = this.getSelectedForOp();
+    const opPaths = selection.length > 0 ? selection : [path];
+    const primaryNode = nodeData;
+
     const entries: ContextMenuEntry[] = [];
 
     const addSeparator = (): void => {
@@ -555,7 +697,7 @@ export class FileTree {
         label: this.t("copy"),
         icon: copyIcon,
         shortcut: this.modKeyLabel + "C",
-        onClick: () => this.copyToClipboard(path),
+        onClick: () => this.copyToClipboard(opPaths),
       });
     }
 
@@ -565,7 +707,7 @@ export class FileTree {
         label: this.t("cut"),
         icon: cutIcon,
         shortcut: this.modKeyLabel + "X",
-        onClick: () => this.cutNode(path),
+        onClick: () => this.cutNode(opPaths),
       });
     }
 
@@ -586,7 +728,7 @@ export class FileTree {
         label: this.t("copyPath"),
         icon: copyIcon,
         onClick: () => {
-          navigator.clipboard?.writeText(path).catch(() => {});
+          navigator.clipboard?.writeText(opPaths.join("\n")).catch(() => {});
         },
       });
     }
@@ -608,7 +750,7 @@ export class FileTree {
         label: this.t("delete"),
         icon: trashIcon,
         shortcut: "Del",
-        onClick: () => this.deleteNode(path),
+        onClick: () => this.deleteNode(opPaths),
       });
     }
 
@@ -625,7 +767,12 @@ export class FileTree {
           label: c.label,
           icon: c.icon,
           shortcut: c.shortcut,
-          onClick: () => c.onClick(nodeData),
+          onClick: () => {
+            const nodes = opPaths
+              .map((p) => this.getNode(p))
+              .filter((n): n is FileTreeNodeData => Boolean(n));
+            c.onClick(nodes, primaryNode);
+          },
         });
       }
     }
@@ -644,19 +791,21 @@ export class FileTree {
 
   // ── Clipboard (Copy / Cut / Paste) ──────────────────────
 
-  /** Copy a node to the internal clipboard for later Paste (duplicate). */
-  copyToClipboard(path: string): void {
-    const p = normalizePath(path);
-    if (!this.data.some((d) => d.path === p)) return;
-    this.clipboard = { path: p, type: "copy" };
+  /** Copy one or more nodes to the internal clipboard for later Paste (duplicate). */
+  copyToClipboard(path: string | string[]): void {
+    const paths = this.dedupePaths(path);
+    if (paths.length === 0) return;
+    if (!paths.every((p) => this.data.some((d) => d.path === p))) return;
+    this.clipboard = { paths, type: "copy" };
     this.clearCutHighlight();
   }
 
-  /** Cut a node to the internal clipboard for later Paste (move). */
-  cutNode(path: string): void {
-    const p = normalizePath(path);
-    if (!this.data.some((d) => d.path === p)) return;
-    this.clipboard = { path: p, type: "cut" };
+  /** Cut one or more nodes to the internal clipboard for later Paste (move). */
+  cutNode(path: string | string[]): void {
+    const paths = this.dedupePaths(path);
+    if (paths.length === 0) return;
+    if (!paths.every((p) => this.data.some((d) => d.path === p))) return;
+    this.clipboard = { paths, type: "cut" };
     this.clearCutHighlight();
     this.applyCutHighlight();
   }
@@ -664,7 +813,7 @@ export class FileTree {
   /** Paste the internal clipboard into a target folder (defaults to the selected node's parent). */
   pasteNode(targetPath?: string): void {
     if (!this.clipboard) return;
-    const { path: src, type } = this.clipboard;
+    const { paths: srcPaths, type } = this.clipboard;
 
     // Resolve the destination folder.
     let destPath = "";
@@ -678,21 +827,28 @@ export class FileTree {
         // Pasting while a folder is selected targets that folder's parent,
         // unless it is the clipboard source itself (same location → duplicate).
         destPath =
-          selData.path === src ? getParentPath(selData.path) : selData.path;
+          this.clipboard.paths.includes(selData.path)
+            ? getParentPath(selData.path)
+            : selData.path;
       } else {
         destPath = getParentPath(this.selectedPath);
       }
     }
 
     if (type === "copy") {
-      // Guard against pasting into a descendant of the copied node.
-      // (Pasting into the source folder's own parent, i.e. same location,
-      // is allowed and duplicates the node with a ` copy` suffix.)
-      if (destPath !== "" && isDescendant(src, destPath)) return;
-      this.copyNodeInternal(src, destPath);
+      // Guard: none of the copied nodes may be pasted into a descendant of itself.
+      for (const src of srcPaths) {
+        if (destPath !== "" && isDescendant(src, destPath)) return;
+      }
+      const newPaths: string[] = [];
+      for (const src of srcPaths) {
+        const newPath = this.copyNodeInternal(src, destPath, "ui", true);
+        if (newPath) newPaths.push(newPath);
+      }
+      if (newPaths.length > 0) this.emitChange();
     } else {
-      // Cut: move the node (and descendants) to the destination.
-      this.moveNodeInternal(src, destPath);
+      // Cut: move the nodes (and descendants) to the destination.
+      this.moveNodeInternal(srcPaths, destPath);
       this.clipboard = null;
       this.clearCutHighlight();
     }
@@ -703,11 +859,13 @@ export class FileTree {
    * Copies to the same location resolve a unique name by appending
    * ` copy` (or ` copy-1`, ...). Returns the new path, or `null` if the
    * copy cannot be performed (invalid source, or copying into a descendant).
+   * When `silent` is true, no `change` event is emitted (caller batches).
    */
   copyNodeInternal(
     sourcePath: string,
     targetParentPath: string,
     source: FileTreeEventSource = "ui",
+    silent = false,
   ): string | null {
     const src = normalizePath(sourcePath);
     const destPath = targetParentPath ? normalizePath(targetParentPath) : "";
@@ -752,15 +910,16 @@ export class FileTree {
     this.selectNode(newPath, source);
     this.emitEvent("create", newPath, undefined, undefined, source);
     this.emitEvent("copy", newPath, src, undefined, source);
-    this.emitChange(source);
+    if (!silent) this.emitChange(source);
 
     return newPath;
   }
 
   private applyCutHighlight(): void {
     if (!this.clipboard || this.clipboard.type !== "cut") return;
-    const node = this.nodeMap.get(this.clipboard.path);
-    node?.contentEl.classList.add("ft-node__content--cut");
+    for (const p of this.clipboard.paths) {
+      this.nodeMap.get(p)?.contentEl.classList.add("ft-node__content--cut");
+    }
   }
 
   private clearCutHighlight(): void {
@@ -887,12 +1046,6 @@ export class FileTree {
     }
     this.renamingPath = null;
     this.fullRerender();
-    // Restore selection
-    if (this.selectedPath && this.nodeMap.has(this.selectedPath)) {
-      this.nodeMap
-        .get(this.selectedPath)
-        ?.contentEl.classList.add("ft-node__content--selected");
-    }
     this.root.focus();
   }
 
@@ -905,13 +1058,24 @@ export class FileTree {
     return name.length > 0 && !/\\/.test(name);
   }
 
+  /** Rewrite `oldPath` → `newPath` in the selection (and anchor/focus). */
   private updateSelectedPath(oldPath: string, newPath: string): void {
-    if (this.selectedPath === null) return;
-    if (this.selectedPath === oldPath) {
-      this.selectedPath = newPath;
-    } else if (this.selectedPath.startsWith(oldPath + "/")) {
-      this.selectedPath = newPath + this.selectedPath.slice(oldPath.length);
+    const rewrite = (p: string): string =>
+      p === oldPath
+        ? newPath
+        : p.startsWith(oldPath + "/")
+          ? newPath + p.slice(oldPath.length)
+          : p;
+
+    if (this.selectedPaths.size > 0) {
+      this.selectedPaths = new Set(
+        [...this.selectedPaths].map((p) =>
+          p === oldPath || p.startsWith(oldPath + "/") ? rewrite(p) : p,
+        ),
+      );
     }
+    if (this.anchorPath) this.anchorPath = rewrite(this.anchorPath);
+    if (this.lastFocusPath) this.lastFocusPath = rewrite(this.lastFocusPath);
   }
 
   /**
@@ -1012,19 +1176,29 @@ export class FileTree {
   // ── Delete ──────────────────────────────────────────────
 
   /**
-   * Attempt to delete a node. Emits a `delete` event *before* removal.
-   * If a listener calls `event.preventDefault()`, the node is **not**
-   * removed, giving the consumer the chance to show a confirmation
-   * dialog and later call `removeNode()` to carry out the deletion.
+   * Attempt to delete one or more nodes. Emits a single `delete` event
+   * *before* removal, carrying all target paths in `paths`. If a listener
+   * calls `event.preventDefault()`, **none** of the nodes are removed,
+   * giving the consumer the chance to show a confirmation dialog and later
+   * call `removeNode()` to carry out the deletion.
    */
-  deleteNode(path: string): void {
-    const p = normalizePath(path);
-    const event = this.emitEvent("delete", p);
+  deleteNode(paths: string | string[]): void {
+    const targets = this.dedupePaths(paths);
+    if (targets.length === 0) return;
+    const event = this.emitEvent(
+      "delete",
+      targets[0],
+      undefined,
+      undefined,
+      "ui",
+      targets,
+    );
     if (event.defaultPrevented) return;
-    this.removeNodeInternal(p);
+    for (const p of targets) this.removeNodeInternal(p);
     this.emitChange();
   }
 
+  /** Remove one node and all its descendants, cleaning up all derived state. */
   private removeNodeInternal(path: string): void {
     const prefix = path + "/";
 
@@ -1039,21 +1213,26 @@ export class FileTree {
       if (p.startsWith(prefix)) this.expandedNodes.delete(p);
     }
 
-    // Clean up selection
+    // Clean up selection (only the removed entries)
+    for (const p of [...this.selectedPaths]) {
+      if (p === path || p.startsWith(prefix)) this.selectedPaths.delete(p);
+    }
+    if (this.anchorPath === path || this.anchorPath?.startsWith(prefix)) {
+      this.anchorPath = null;
+    }
     if (
-      this.selectedPath === path ||
-      (this.selectedPath && this.selectedPath.startsWith(prefix))
+      this.lastFocusPath === path ||
+      this.lastFocusPath?.startsWith(prefix)
     ) {
-      this.selectedPath = null;
+      this.lastFocusPath = null;
     }
 
     // Clean up clipboard if it referenced the removed node
-    if (
-      this.clipboard &&
-      (this.clipboard.path === path ||
-        this.clipboard.path.startsWith(prefix))
-    ) {
-      this.clipboard = null;
+    if (this.clipboard) {
+      this.clipboard.paths = this.clipboard.paths.filter(
+        (p) => p !== path && !p.startsWith(prefix),
+      );
+      if (this.clipboard.paths.length === 0) this.clipboard = null;
     }
 
     this.fullRerender();
@@ -1062,12 +1241,14 @@ export class FileTree {
   // ── Move (Drag & Drop) ─────────────────────────────────
 
   private handleDragMove(
-    sourcePath: string,
+    sourcePaths: string[],
     targetPath: string,
     position: DropPosition,
   ): void {
-    if (sourcePath === targetPath) return;
-    if (isDescendant(sourcePath, targetPath)) return;
+    if (sourcePaths.length === 0) return;
+    if (sourcePaths.some((s) => s === targetPath)) return;
+    // Can't drop any dragged node into its own descendant.
+    if (sourcePaths.some((s) => isDescendant(s, targetPath))) return;
 
     const targetData = this.data.find((d) => d.path === targetPath);
     if (!targetData) return;
@@ -1079,36 +1260,44 @@ export class FileTree {
       newParentPath = getParentPath(targetPath);
     }
 
-    this.moveNodeInternal(sourcePath, newParentPath);
+    this.moveNodeInternal(sourcePaths, newParentPath);
   }
 
   private moveNodeInternal(
-    sourcePath: string,
+    sourcePaths: string | string[],
     newParentPath: string,
     source: FileTreeEventSource = "ui",
   ): void {
-    const sourceName = getName(sourcePath);
-    const newPath = newParentPath
-      ? `${newParentPath}/${sourceName}`
-      : sourceName;
+    const paths = this.dedupePaths(sourcePaths);
+    if (paths.length === 0) return;
 
-    if (sourcePath === newPath) return;
-    if (this.data.some((d) => d.path === newPath)) return;
+    const moved: Array<{ oldPath: string; newPath: string }> = [];
+    for (const sourcePath of paths) {
+      const sourceName = getName(sourcePath);
+      const newPath = newParentPath
+        ? `${newParentPath}/${sourceName}`
+        : sourceName;
 
-    const oldPath = sourcePath;
+      if (sourcePath === newPath) continue;
+      if (this.data.some((d) => d.path === newPath)) continue;
 
-    updatePathsInData(this.data, sourcePath, newPath);
-    updatePathsInSet(this.expandedNodes, sourcePath, newPath);
-    this.updateSelectedPath(sourcePath, newPath);
+      updatePathsInData(this.data, sourcePath, newPath);
+      updatePathsInSet(this.expandedNodes, sourcePath, newPath);
+      this.updateSelectedPath(sourcePath, newPath);
+      moved.push({ oldPath: sourcePath, newPath });
+    }
 
+    if (moved.length === 0) return;
     this.data = normalizeData(this.data);
 
     if (newParentPath) this.expandedNodes.add(newParentPath);
 
     this.fullRerender();
-    this.selectNode(newPath, source);
+    this.selectNode(moved[0].newPath, source);
 
-    this.emitEvent("move", newPath, oldPath, undefined, source);
+    for (const { oldPath, newPath } of moved) {
+      this.emitEvent("move", newPath, oldPath, undefined, source);
+    }
     this.emitChange(source);
   }
 
@@ -1183,10 +1372,7 @@ export class FileTree {
     }
 
     // Restore selection
-    if (this.selectedPath) {
-      const node = this.nodeMap.get(this.selectedPath);
-      node?.contentEl.classList.add("ft-node__content--selected");
-    }
+    this.applySelectionClasses();
 
     // Restore cut highlight
     this.applyCutHighlight();
@@ -1213,23 +1399,38 @@ export class FileTree {
     const visible = this.getVisibleNodePaths();
     if (visible.length === 0) return;
 
-    const currentIdx = this.selectedPath
-      ? visible.indexOf(this.selectedPath)
-      : -1;
+    const focusPath = this.lastFocusPath ?? this.selectedPath;
+    const currentIdx = focusPath ? visible.indexOf(focusPath) : -1;
 
     switch (e.key) {
       case "ArrowDown": {
         e.preventDefault();
         const nextIdx = Math.min(currentIdx + 1, visible.length - 1);
-        this.selectNode(visible[nextIdx]);
-        this.scrollIntoView(visible[nextIdx]);
+        const next = visible[nextIdx];
+        if (e.shiftKey) {
+          this.selectNode(next, "ui", "range");
+        } else if (e.ctrlKey || e.metaKey) {
+          this.lastFocusPath = next;
+          this.applyFocusRing();
+        } else {
+          this.selectNode(next);
+        }
+        this.scrollIntoView(next);
         break;
       }
       case "ArrowUp": {
         e.preventDefault();
         const prevIdx = Math.max(currentIdx - 1, 0);
-        this.selectNode(visible[prevIdx]);
-        this.scrollIntoView(visible[prevIdx]);
+        const prev = visible[prevIdx];
+        if (e.shiftKey) {
+          this.selectNode(prev, "ui", "range");
+        } else if (e.ctrlKey || e.metaKey) {
+          this.lastFocusPath = prev;
+          this.applyFocusRing();
+        } else {
+          this.selectNode(prev);
+        }
+        this.scrollIntoView(prev);
         break;
       }
       case "ArrowRight": {
@@ -1278,6 +1479,17 @@ export class FileTree {
         }
         break;
       }
+      case "a":
+      case "A": {
+        if (
+          (e.ctrlKey || e.metaKey) &&
+          this.options.contextMenu !== false
+        ) {
+          e.preventDefault();
+          this.selectAllInternal();
+        }
+        break;
+      }
       case "F2": {
         e.preventDefault();
         if (this.selectedPath && this.options.contextMenu !== false) {
@@ -1287,8 +1499,8 @@ export class FileTree {
       }
       case "Delete": {
         e.preventDefault();
-        if (this.selectedPath && this.options.contextMenu !== false) {
-          this.deleteNode(this.selectedPath);
+        if (this.selectedPaths.size > 0 && this.options.contextMenu !== false) {
+          this.deleteNode(this.getSelectedForOp());
         }
         break;
       }
@@ -1296,12 +1508,12 @@ export class FileTree {
       case "C": {
         if (
           (e.ctrlKey || e.metaKey) &&
-          this.selectedPath &&
+          this.selectedPaths.size > 0 &&
           this.options.contextMenu !== false &&
           (this.options.contextMenu as ContextMenuOptions).copy
         ) {
           e.preventDefault();
-          this.copyToClipboard(this.selectedPath);
+          this.copyToClipboard(this.getSelectedForOp());
         }
         break;
       }
@@ -1309,12 +1521,12 @@ export class FileTree {
       case "X": {
         if (
           (e.ctrlKey || e.metaKey) &&
-          this.selectedPath &&
+          this.selectedPaths.size > 0 &&
           this.options.contextMenu !== false &&
           (this.options.contextMenu as ContextMenuOptions).cut
         ) {
           e.preventDefault();
-          this.cutNode(this.selectedPath);
+          this.cutNode(this.getSelectedForOp());
         }
         break;
       }
@@ -1332,6 +1544,16 @@ export class FileTree {
         break;
       }
     }
+  }
+
+  /** Toggle the keyboard-focus ring on the focused node. */
+  private applyFocusRing(): void {
+    this.nodeMap.forEach((node) => {
+      node.contentEl.classList.toggle(
+        "ft-node__content--focused",
+        node.path === this.lastFocusPath,
+      );
+    });
   }
 
   private getVisibleNodePaths(): string[] {
@@ -1398,6 +1620,7 @@ export class FileTree {
     oldPath?: string,
     data?: { files: FileList; items: DataTransferItemList },
     source: FileTreeEventSource = "ui",
+    paths?: string[],
   ): FileTreeEvent {
     const nodeData = this.data.find((d) => d.path === path);
     const parentPath = getParentPath(path);
@@ -1411,6 +1634,14 @@ export class FileTree {
       node: nodeData ? { ...nodeData } : { path, type: "file" },
       path,
       oldPath,
+      ...(paths && paths.length > 0
+        ? {
+            paths,
+            nodes: paths.map(
+              (p) => this.data.find((d) => d.path === p) ?? { path: p, type: "file" },
+            ),
+          }
+        : {}),
       parentPath,
       parentNode: parentNode ? { ...parentNode } : null,
       tree: cloneData(this.data),
@@ -1459,9 +1690,18 @@ export class FileTree {
     return this.getNode(this.selectedPath) ?? null;
   }
 
+  /** All currently selected nodes (in selection order). */
+  getSelectedNodes(): FileTreeNodeData[] {
+    return this.selectedPathsArray()
+      .map((p) => this.getNode(p))
+      .filter((n): n is FileTreeNodeData => Boolean(n));
+  }
+
   setData(data: FileTreeNodeData[]): void {
     this.data = normalizeData(data);
-    this.selectedPath = null;
+    this.selectedPaths.clear();
+    this.anchorPath = null;
+    this.lastFocusPath = null;
     this.expandedNodes.clear();
     this.fullRerender();
   }
@@ -1486,14 +1726,14 @@ export class FileTree {
   }
 
   /**
-   * Programmatically remove a node and its descendants.
+   * Programmatically remove one or more nodes (and their descendants).
    * Unlike the UI-triggered `deleteNode`, this is **not cancellable** —
-   * it always removes the node immediately. Use this from your
+   * it always removes the nodes immediately. Use this from your
    * confirmation callback after intercepting a `delete` event.
    */
-  removeNode(path: string): void {
-    const p = normalizePath(path);
-    this.removeNodeInternal(p);
+  removeNode(path: string | string[]): void {
+    const targets = this.dedupePaths(path);
+    for (const p of targets) this.removeNodeInternal(p);
     this.emitChange("api");
   }
 
@@ -1523,36 +1763,66 @@ export class FileTree {
     this.emitChange("api");
   }
 
-  moveNode(sourcePath: string, targetParentPath: string | null): void {
-    const src = normalizePath(sourcePath);
+  moveNode(
+    sourcePath: string | string[],
+    targetParentPath: string | null,
+  ): void {
     const tgt = targetParentPath ? normalizePath(targetParentPath) : "";
-    this.moveNodeInternal(src, tgt, "api");
+    this.moveNodeInternal(sourcePath, tgt, "api");
   }
 
   /**
-   * Copy a node (and its descendants) to a new parent folder
+   * Copy one or more nodes (and their descendants) to a new parent folder
    * (`''` or `null` for root). Copying to the same location duplicates
    * the node with a unique name (` copy` before the extension, e.g.
    * `index copy.ts`). Emits `copy` and `create` events.
-   * Returns the new path, or `null` if the copy cannot be performed.
+   * Returns the new path(s), or `null` if the copy cannot be performed.
    */
   copyNode(
-    sourcePath: string,
+    sourcePath: string | string[],
     targetParentPath: string | null,
-  ): string | null {
-    const src = normalizePath(sourcePath);
+  ): string | string[] | null {
+    const sources = this.dedupePaths(sourcePath);
+    if (sources.length === 0) return null;
     const tgt = targetParentPath ? normalizePath(targetParentPath) : "";
-    return this.copyNodeInternal(src, tgt, "api");
+    const results = sources
+      .map((src) => this.copyNodeInternal(src, tgt, "api"))
+      .filter((r): r is string => Boolean(r));
+    if (results.length === 0) return null;
+    return results.length === 1 ? results[0] : results;
   }
 
-  select(path: string): void {
-    const p = normalizePath(path);
-    if (!this.nodeMap.has(p)) return;
+  select(path: string | string[]): void {
+    const paths = this.dedupePaths(path);
+    if (paths.length === 0) return;
 
-    this.expandAncestors(p);
+    if (paths.length === 1) {
+      const p = paths[0];
+      if (!this.nodeMap.has(p)) return;
+      this.expandAncestors(p);
+      this.selectNode(p, "api");
+      this.scrollIntoView(p);
+    } else {
+      for (const p of paths) {
+        if (!this.nodeMap.has(p)) return;
+        this.expandAncestors(p);
+      }
+      this.selectedPaths = new Set(paths);
+      this.anchorPath = paths[0];
+      this.lastFocusPath = paths[paths.length - 1];
+      this.applySelectionClasses();
+      this.emitSelectEvent("api");
+    }
+  }
 
-    this.selectNode(p, "api");
-    this.scrollIntoView(p);
+  /** Clear the current selection. */
+  clearSelection(): void {
+    this.clearSelectionInternal("api");
+  }
+
+  /** Select every node in the tree. */
+  selectAll(): void {
+    this.selectAllInternal("api");
   }
 
   // ── Theme & Direction ───────────────────────────────────

@@ -94,6 +94,20 @@ describe("drag & drop (internal)", () => {
     expect(sources).toEqual(["ui"]);
     tree.destroy();
   });
+
+  it("dragging a selected node moves the whole selection", () => {
+    const tree = createTree({ data: DATA });
+    tree.addNode({ path: "backup", type: "folder" });
+    tree.select(["src/index.ts", "package.json"]);
+    // Drag one of the selected nodes onto the backup folder.
+    dragDrop(tree, "src/index.ts", "backup", 50);
+    expect(paths(tree)).toContain("backup/index.ts");
+    expect(paths(tree)).toContain("backup/package.json");
+    expect(paths(tree)).not.toContain("src/index.ts");
+    expect(paths(tree)).not.toContain("package.json");
+    expect(paths(tree)).toContain("src/lib");
+    tree.destroy();
+  });
 });
 
 describe("drag & drop (external files)", () => {

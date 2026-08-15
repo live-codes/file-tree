@@ -4,8 +4,13 @@ export type DropPosition = "before" | "inside" | "after";
 
 export interface DragDropCallbacks {
   getNode: (path: string) => InternalNode | undefined;
+  /**
+   * Return the paths that should be dragged together when a node is
+   * dragged (e.g. the full selection, including the dragged node).
+   */
+  getDragPaths: (path: string) => string[];
   onMove: (
-    sourcePath: string,
+    sourcePaths: string[],
     targetPath: string,
     position: DropPosition,
   ) => void;
@@ -17,7 +22,7 @@ export interface DragDropCallbacks {
 }
 
 export class DragDrop {
-  private draggedPath: string | null = null;
+  private draggedPaths: string[] = [];
   private currentDropTarget: HTMLElement | null = null;
   private dropIndicator: HTMLElement;
   private dropPosition: DropPosition = "inside";
@@ -55,13 +60,17 @@ export class DragDrop {
     const path = nodeEl.dataset.path;
     if (!path) return;
 
-    this.draggedPath = path;
+    this.draggedPaths = this.callbacks.getDragPaths(path);
     e.dataTransfer!.effectAllowed = "move";
-    e.dataTransfer!.setData("text/plain", path);
-    nodeEl.classList.add("ft-node--dragging");
-
+    e.dataTransfer!.setData("text/plain", this.draggedPaths.join("\n"));
+    // Mark all dragged nodes (fade via rAF so the drag image isn't affected)
+    for (const p of this.draggedPaths) {
+      this.callbacks.getNode(p)?.el.classList.add("ft-node--dragging");
+    }
     requestAnimationFrame(() => {
-      nodeEl.style.opacity = "0.4";
+      for (const p of this.draggedPaths) {
+        this.callbacks.getNode(p)?.el.style.setProperty("opacity", "0.4");
+      }
     });
   }
 
@@ -81,8 +90,12 @@ export class DragDrop {
     const path = nodeEl?.dataset.path;
     if (!path) return;
 
-    // Don't drop on self
-    if (path === this.draggedPath) {
+    // Don't drop on any dragged node or into its descendants.
+    if (this.draggedPaths.includes(path)) {
+      this.clearDropTarget();
+      return;
+    }
+    if (this.draggedPaths.some((s) => path.startsWith(s + "/"))) {
       this.clearDropTarget();
       return;
     }
@@ -184,7 +197,7 @@ export class DragDrop {
     if (
       ((e.dataTransfer?.files && e.dataTransfer.files.length > 0) ||
         (e.dataTransfer?.items && e.dataTransfer.items.length > 0)) &&
-      !this.draggedPath
+      this.draggedPaths.length === 0
     ) {
       const files = e.dataTransfer.files;
       const items = e.dataTransfer.items; // for directories
@@ -193,8 +206,8 @@ export class DragDrop {
       return;
     }
 
-    if (this.draggedPath && this.draggedPath !== targetPath) {
-      this.callbacks.onMove(this.draggedPath, targetPath, position);
+    if (this.draggedPaths.length > 0) {
+      this.callbacks.onMove(this.draggedPaths, targetPath, position);
     }
 
     this.cleanup();
@@ -205,14 +218,12 @@ export class DragDrop {
   }
 
   private cleanup(): void {
-    const dragging = this.treeEl.querySelector(
-      ".ft-node--dragging",
-    ) as HTMLElement | null;
-    if (dragging) {
-      dragging.classList.remove("ft-node--dragging");
-      dragging.style.opacity = "";
+    for (const p of this.draggedPaths) {
+      const node = this.callbacks.getNode(p);
+      node?.el.classList.remove("ft-node--dragging");
+      node?.el.style.removeProperty("opacity");
     }
-    this.draggedPath = null;
+    this.draggedPaths = [];
     this.clearDropTarget();
   }
 

@@ -244,6 +244,12 @@ load order.
     background: var(--ft-node-selected);
   }
 
+  /* Keyboard focus ring (ctrl+arrow moves focus without selecting) */
+  .ft-node__content--focused {
+    outline: 1px solid var(--ft-drop-indicator);
+    outline-offset: -1px;
+  }
+
   /* ── Cut highlight ────────────────────────────────────── */
 
   .ft-node__content--cut {
