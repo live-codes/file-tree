@@ -272,9 +272,11 @@ Custom toolbar buttons and context menu items are entirely user-supplied, so the
 | Method                                   | Description                                                  |
 | ---------------------------------------- | ------------------------------------------------------------ |
 | `addNode(node)`                          | Add a node (parent folders auto-created from path)           |
+| `deleteNode(path \| string[])`            | Delete node(s) and their descendants; emits a cancellable `delete` event first (call `preventDefault()` to intercept, e.g. for a confirmation dialog) |
 | `removeNode(path \| string[])`           | Remove node(s) and their descendants (not cancellable)       |
 | `renameNode(path, newName)`              | Rename a node (changes only the last path segment; slashes in `newName` create intermediate folders on the fly) |
 | `moveNode(sourcePath \| string[], targetParentPath)` | Move node(s) to a new parent folder (`''` or `null` for root) |
+| `moveTo(oldPath, newPath)`                    | Move a node to an exact destination path, renaming it in the same step (combines `moveNode` + `renameNode`); missing intermediate folders are auto-created; returns `false` if invalid (conflict, or a folder moved inside itself) |
 | `copyNode(sourcePath \| string[], targetParentPath)` | Copy node(s) to a new parent folder (`''` or `null` for root); copying to the same location duplicates them with a ` copy` suffix before the extension (e.g. `index copy.ts`); returns the new path(s) |
 | `setData(data)`                          | Replace the entire tree                                      |
 | `getData()`                              | Get a clone of the flat data array                           |

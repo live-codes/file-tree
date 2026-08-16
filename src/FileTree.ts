@@ -1772,6 +1772,22 @@ export class FileTree {
   }
 
   /**
+   * Move a node to an exact destination path, renaming it in the same step
+   * (e.g. `moveTo("src/index.ts", "lib/main.ts")`). This combines
+   * `moveNode` (change parent) and `renameNode` (change name). The
+   * destination may contain slashes: missing intermediate folders are
+   * auto-created, and `source` is set to `"api"` so a `rename` event is
+   * emitted (consistent with `renameNode`). Returns `false` if the move is
+   * invalid (conflict, or a folder moved inside itself).
+   */
+  moveTo(oldPath: string, newPath: string): boolean {
+    const p = normalizePath(oldPath);
+    const target = normalizePath(newPath);
+    if (p === target) return false;
+    return this.renameToNestedPath(p, target, false, "api");
+  }
+
+  /**
    * Copy one or more nodes (and their descendants) to a new parent folder
    * (`''` or `null` for root). Copying to the same location duplicates
    * the node with a unique name (` copy` before the extension, e.g.

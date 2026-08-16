@@ -151,6 +151,43 @@ describe("renameNode API", () => {
   });
 });
 
+describe("moveTo API", () => {
+  it("moves a node to an exact path, renaming it in the same step", () => {
+    const tree = createTree({ data: DATA });
+    const events: Array<[string, string, string]> = [];
+    tree.on("rename", (e) => events.push([e.oldPath!, e.path, e.source]));
+    expect(tree.moveTo("src/index.ts", "lib/main.ts")).toBe(true);
+    expect(tree.getNode("lib/main.ts")).toBeDefined();
+    expect(tree.getNode("src/index.ts")).toBeUndefined();
+    expect(tree.getNode("lib")?.type).toBe("folder");
+    expect(events).toEqual([["src/index.ts", "lib/main.ts", "api"]]);
+    tree.destroy();
+  });
+
+  it("moves a folder and its descendants", () => {
+    const tree = createTree({ data: DATA });
+    tree.moveTo("src", "lib/utils");
+    expect(tree.getNode("lib/utils/lib/util.ts")).toBeDefined();
+    expect(tree.getNode("src")).toBeUndefined();
+    tree.destroy();
+  });
+
+  it("rejects moving a folder into itself", () => {
+    const tree = createTree({ data: [{ path: "a", type: "folder" }] });
+    expect(tree.moveTo("a", "a/b")).toBe(false);
+    expect(tree.getNode("a")).toBeDefined();
+    expect(tree.getNode("a/b")).toBeUndefined();
+    tree.destroy();
+  });
+
+  it("returns false for a conflicting destination path", () => {
+    const tree = createTree({ data: DATA });
+    expect(tree.moveTo("src/index.ts", "src/lib/util.ts")).toBe(false);
+    expect(tree.getNode("src/index.ts")).toBeDefined();
+    tree.destroy();
+  });
+});
+
 describe("event payloads", () => {
   it("includes path, oldPath, parentPath, parentNode and tree snapshot", () => {
     const tree = createTree({ data: DATA });
