@@ -293,7 +293,7 @@ export class FileTree {
     if (cfg.custom) {
       for (const btn of cfg.custom) {
         const el = this.toolbarBtn(
-          btn.title ?? btn.label,
+          btn.label,
           btn.icon ?? "",
           btn.onClick,
           btn.id,

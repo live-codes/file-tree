@@ -173,9 +173,8 @@ A few rules apply:
 ```typescript
 interface ToolbarButton {
   id: string;
-  label: string;
+  label: string; // Button tooltip (shown on hover)
   icon?: string; // SVG string
-  title?: string; // Tooltip
   onClick: () => void;
   order?: number; // Position among the built-in buttons
 }

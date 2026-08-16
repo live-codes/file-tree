@@ -13,9 +13,9 @@ export interface FileTreeNodeData {
 /** Configuration for a custom toolbar button. */
 export interface ToolbarButton {
   id: string;
+  /** Button tooltip (shown on hover). */
   label: string;
   icon?: string;
-  title?: string;
   onClick: () => void;
   /**
    * Position of this button relative to the built-in toolbar buttons.
