@@ -179,6 +179,24 @@ describe("multi-select: selection API", () => {
     tree.destroy();
   });
 
+  it("select() with a missing path clears the selection", () => {
+    const tree = createTree({ data: DATA });
+    tree.select(["src", "package.json"]);
+    tree.select("does-not-exist");
+    expect(tree.getSelectedNodes()).toEqual([]);
+    tree.destroy();
+  });
+
+  it("select() ignores missing paths in an array", () => {
+    const tree = createTree({ data: DATA });
+    tree.select(["src", "does-not-exist", "package.json"]);
+    expect(tree.getSelectedNodes().map((n) => n.path).sort()).toEqual([
+      "package.json",
+      "src",
+    ]);
+    tree.destroy();
+  });
+
   it("selectAll() selects all nodes", () => {
     const tree = createTree({ data: DATA });
     tree.selectAll();

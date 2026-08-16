@@ -1809,18 +1809,23 @@ export class FileTree {
   }
 
   select(path: string | string[]): void {
-    const paths = this.dedupePaths(path);
-    if (paths.length === 0) return;
+    // Filter to existing nodes only, so stale/missing paths are ignored
+    // rather than aborting the whole call.
+    const paths = this.dedupePaths(path).filter((p) => this.nodeMap.has(p));
+
+    if (paths.length === 0) {
+      // Selecting only missing paths clears the selection.
+      this.clearSelectionInternal("api");
+      return;
+    }
 
     if (paths.length === 1) {
       const p = paths[0];
-      if (!this.nodeMap.has(p)) return;
       this.expandAncestors(p);
       this.selectNode(p, "api");
       this.scrollIntoView(p);
     } else {
       for (const p of paths) {
-        if (!this.nodeMap.has(p)) return;
         this.expandAncestors(p);
       }
       this.selectedPaths = new Set(paths);
