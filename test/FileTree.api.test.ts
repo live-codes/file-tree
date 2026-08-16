@@ -299,6 +299,38 @@ describe("keyboard navigation", () => {
     expect(rootOf(tree).querySelector(".ft-rename-input")).not.toBeNull();
     tree.destroy();
   });
+
+  it("Ctrl+Arrow moves focus without changing the selection", () => {
+    const tree = createTree({ data: DATA });
+    tree.select("package.json");
+    keydown(tree, { key: "ArrowUp", ctrlKey: true });
+    // Focus moved to the node above package.json (src), selection unchanged.
+    expect(tree.getSelectedNodes().map((n) => n.path)).toEqual([
+      "package.json",
+    ]);
+    tree.destroy();
+  });
+
+  it("Space after Ctrl+Arrow adds the focused node to the selection", () => {
+    const tree = createTree({ data: DATA });
+    tree.select("package.json");
+    keydown(tree, { key: "ArrowUp", ctrlKey: true }); // focus → src
+    keydown(tree, { key: " " }); // toggle src into selection
+    expect(tree.getSelectedNodes().map((n) => n.path).sort()).toEqual([
+      "package.json",
+      "src",
+    ]);
+    tree.destroy();
+  });
+
+  it("Space toggles the selected node when focus is on it", () => {
+    const tree = createTree({ data: DATA });
+    tree.select("src");
+    keydown(tree, { key: " " });
+    // lastFocusPath === selectedPath === "src", so Space deselects it.
+    expect(tree.getSelectedNodes()).toEqual([]);
+    tree.destroy();
+  });
 });
 
 describe("context menu actions", () => {

@@ -1471,14 +1471,23 @@ export class FileTree {
         break;
       }
       case "Enter":
-      case " ": {
         e.preventDefault();
         if (this.selectedPath) {
           const nodeData = this.data.find((d) => d.path === this.selectedPath);
           if (nodeData?.type === "folder") this.toggleExpand(this.selectedPath);
         }
         break;
-      }
+      case " ":
+        // Space toggles the focused node in/out of the selection. When
+        // Ctrl+Arrow moved focus away from the selection, this adds/removes
+        // that focused node; otherwise it toggles the selected node itself.
+        e.preventDefault();
+        if (this.lastFocusPath && this.nodeMap.has(this.lastFocusPath)) {
+          this.selectNode(this.lastFocusPath, "ui", "toggle");
+        } else if (this.selectedPath) {
+          this.selectNode(this.selectedPath, "ui", "toggle");
+        }
+        break;
       case "a":
       case "A": {
         if (
