@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createTree,
+  nodeChildrenEl,
   nodeContentEl,
   nodeEl,
   rootOf,
@@ -77,6 +78,17 @@ describe("drag & drop (internal)", () => {
     tree.destroy();
   });
 
+  it("drops onto a child file row moves the node into that folder", () => {
+    const tree = createTree({ data: DATA });
+    tree.expand("src");
+    // `src/index.ts` is a file inside `src`; dropping on its row should
+    // highlight `src` and move the node into `src`.
+    dragDrop(tree, "package.json", "src/index.ts", 50);
+    expect(paths(tree)).toContain("src/package.json");
+    expect(paths(tree)).not.toContain("package.json");
+    tree.destroy();
+  });
+
   it("refuses to drop a folder into its own descendant", () => {
     const tree = createTree({ data: DATA });
     tree.expand("src");
@@ -106,6 +118,56 @@ describe("drag & drop (internal)", () => {
     expect(paths(tree)).not.toContain("src/index.ts");
     expect(paths(tree)).not.toContain("package.json");
     expect(paths(tree)).toContain("src/lib");
+    tree.destroy();
+  });
+
+  it("moves a node to root when dropped on empty tree space", () => {
+    const tree = createTree({ data: DATA });
+    const treeEl = rootOf(tree).querySelector(".ft-tree")!;
+    const srcContent = nodeContentEl(tree, "src/index.ts")!;
+
+    const dt = new DataTransfer();
+    const start = dragEvent("dragstart", { dataTransfer: dt });
+    Object.defineProperty(start, "target", { value: srcContent });
+    treeEl.dispatchEvent(start);
+
+    // Dragover the tree's empty space (not a node).
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: treeEl });
+    treeEl.dispatchEvent(over);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(true);
+
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(paths(tree)).toContain("index.ts");
+    expect(paths(tree)).not.toContain("src/index.ts");
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(false);
+    tree.destroy();
+  });
+
+  it("drops into an expanded folder when hovering its children area", () => {
+    const tree = createTree({ data: DATA });
+    tree.expand("src");
+    const treeEl = rootOf(tree).querySelector(".ft-tree")!;
+    const srcContent = nodeContentEl(tree, "src")!;
+    const childrenEl = nodeChildrenEl(tree, "src")!;
+
+    const dt = new DataTransfer();
+    const start = dragEvent("dragstart", { dataTransfer: dt });
+    Object.defineProperty(start, "target", { value: nodeContentEl(tree, "package.json")! });
+    treeEl.dispatchEvent(start);
+
+    // Hover empty space inside the expanded folder (the children container).
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: childrenEl });
+    treeEl.dispatchEvent(over);
+    expect(srcContent.classList.contains("ft-node__content--drop-inside")).toBe(true);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(false);
+
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(paths(tree)).toContain("src/package.json");
+    expect(paths(tree)).not.toContain("package.json");
     tree.destroy();
   });
 });
@@ -156,11 +218,32 @@ describe("drag & drop (external files)", () => {
     const tree = createTree({ data: DATA });
     const dt = new DataTransfer();
     dt.addFile(new File(["x"], "root.txt", { type: "text/plain" }));
-    // Drop without a dragover target: DragDrop requires a currentDropTarget,
-    // so drop on the tree element with no prior target is a no-op.
+    // Dragover the empty tree space, then drop: files land at the root.
+    const treeEl = rootOf(tree).querySelector(".ft-tree")!;
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: treeEl });
+    treeEl.dispatchEvent(over);
     const drop = dragEvent("drop", { dataTransfer: dt });
-    rootOf(tree).querySelector(".ft-tree")!.dispatchEvent(drop);
-    expect(tree.getNode("root.txt")).toBeUndefined();
+    treeEl.dispatchEvent(drop);
+    expect(tree.getNode("root.txt")).toBeDefined();
+    expect(tree.getNode("root.txt")?.meta?.file).toBeInstanceOf(File);
+    tree.destroy();
+  });
+
+  it("emits a root drop event (empty target path) when dropping on empty space", () => {
+    const tree = createTree({ data: DATA });
+    const dropped: string[] = [];
+    tree.on("drop", (e) => dropped.push(e.path));
+    const treeEl = rootOf(tree).querySelector(".ft-tree")!;
+    const dt = new DataTransfer();
+    dt.addFile(new File(["x"], "root2.txt", { type: "text/plain" }));
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: treeEl });
+    treeEl.dispatchEvent(over);
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(dropped).toEqual([""]);
+    expect(tree.getNode("root2.txt")).toBeDefined();
     tree.destroy();
   });
 });

@@ -24,6 +24,8 @@ export interface DragDropCallbacks {
 export class DragDrop {
   private draggedPaths: string[] = [];
   private currentDropTarget: HTMLElement | null = null;
+  /** Whether the current drop target is the tree's empty space (root). */
+  private rootDrop = false;
   private dropIndicator: HTMLElement;
   private dropPosition: DropPosition = "inside";
   private treeEl: HTMLElement;
@@ -82,13 +84,75 @@ export class DragDrop {
       ".ft-node__content",
     ) as HTMLElement | null;
     if (!contentEl) {
-      this.clearDropTarget();
+      // Over empty space: if it's within an expanded folder's children
+      // area, treat it as a drop inside that folder; otherwise drop on
+      // the tree root.
+      const childrenEl = (e.target as HTMLElement).closest(
+        ".ft-node__children",
+      ) as HTMLElement | null;
+      const folderEl = childrenEl?.closest(".ft-node") as HTMLElement | null;
+      const folderPath = folderEl?.dataset.path;
+      const folderContentEl = folderEl?.querySelector(
+        ":scope > .ft-node__content",
+      ) as HTMLElement | null;
+      if (folderPath && folderContentEl) {
+        // Don't drop on any dragged node or into its descendants.
+        if (this.draggedPaths.includes(folderPath)) {
+          this.clearDropTarget();
+          return;
+        }
+        if (this.draggedPaths.some((s) => folderPath.startsWith(s + "/"))) {
+          this.clearDropTarget();
+          return;
+        }
+        this.setDropTarget(
+          folderContentEl,
+          "inside",
+          folderContentEl.getBoundingClientRect(),
+        );
+        return;
+      }
+      this.setRootDrop();
       return;
     }
 
     const nodeEl = contentEl.closest(".ft-node") as HTMLElement;
     const path = nodeEl?.dataset.path;
     if (!path) return;
+
+    const nodeData = this.callbacks.getNode(path);
+    if (!nodeData) return;
+
+    // A file row nested inside a folder's children always drops into that
+    // folder: the whole row highlights the parent instead of showing
+    // before/after zones on the file itself.
+    if (nodeData.data.type === "file") {
+      const parentFolderEl = nodeEl.parentElement?.closest(
+        ".ft-node",
+      ) as HTMLElement | null;
+      const parentPath = parentFolderEl?.dataset.path;
+      const parentContentEl = parentFolderEl?.querySelector(
+        ":scope > .ft-node__content",
+      ) as HTMLElement | null;
+      if (parentPath && parentContentEl) {
+        // Don't drop into a dragged folder or into a dragged node's
+        // descendant.
+        if (this.draggedPaths.includes(parentPath)) {
+          this.clearDropTarget();
+          return;
+        }
+        if (this.draggedPaths.some((s) => parentPath.startsWith(s + "/"))) {
+          this.clearDropTarget();
+          return;
+        }
+        this.setDropTarget(
+          parentContentEl,
+          "inside",
+          parentContentEl.getBoundingClientRect(),
+        );
+        return;
+      }
+    }
 
     // Don't drop on any dragged node or into its descendants.
     if (this.draggedPaths.includes(path)) {
@@ -103,8 +167,6 @@ export class DragDrop {
     const rect = contentEl.getBoundingClientRect();
     const y = e.clientY - rect.top;
     const ratio = y / rect.height;
-    const nodeData = this.callbacks.getNode(path);
-    if (!nodeData) return;
 
     let position: DropPosition;
     if (nodeData.data.type === "folder") {
@@ -130,6 +192,10 @@ export class DragDrop {
         "ft-node__content--drop-after",
       );
     }
+    if (this.rootDrop) {
+      this.rootDrop = false;
+      this.treeEl.classList.remove("ft-tree--drop-root");
+    }
 
     this.currentDropTarget = contentEl;
     this.dropPosition = position;
@@ -151,6 +217,13 @@ export class DragDrop {
     }
   }
 
+  private setRootDrop(): void {
+    if (this.rootDrop) return;
+    this.clearDropTarget();
+    this.rootDrop = true;
+    this.treeEl.classList.add("ft-tree--drop-root");
+  }
+
   private clearDropTarget(): void {
     if (this.currentDropTarget) {
       this.currentDropTarget.classList.remove(
@@ -160,16 +233,34 @@ export class DragDrop {
       );
       this.currentDropTarget = null;
     }
+    if (this.rootDrop) {
+      this.rootDrop = false;
+      this.treeEl.classList.remove("ft-tree--drop-root");
+    }
     this.dropIndicator.style.display = "none";
   }
 
   private onDragLeave(e: DragEvent): void {
+    const treeRect = this.treeEl.getBoundingClientRect();
+    const { clientX, clientY } = e;
+    const outsideTree =
+      clientX < treeRect.left ||
+      clientX > treeRect.right ||
+      clientY < treeRect.top ||
+      clientY > treeRect.bottom;
+
+    if (outsideTree) {
+      // Pointer left the tree entirely: drop the root highlight or any
+      // node target so the indicator doesn't stay stuck.
+      this.clearDropTarget();
+      return;
+    }
+
     const contentEl = (e.target as HTMLElement).closest(
       ".ft-node__content",
     ) as HTMLElement | null;
     if (contentEl && contentEl === this.currentDropTarget) {
       const rect = contentEl.getBoundingClientRect();
-      const { clientX, clientY } = e;
       if (
         clientX < rect.left ||
         clientX > rect.right ||
@@ -183,22 +274,32 @@ export class DragDrop {
 
   private onDrop(e: DragEvent): void {
     e.preventDefault();
-    const targetContentEl = this.currentDropTarget;
-    if (!targetContentEl) return;
 
-    const targetNodeEl = targetContentEl.closest(".ft-node") as HTMLElement;
-    const targetPath = targetNodeEl?.dataset.path;
-    if (!targetPath) return;
+    // Determine drop target: a node's path, or null for the tree's root.
+    let targetPath: string | null = null;
+    if (this.currentDropTarget) {
+      const targetNodeEl = this.currentDropTarget.closest(
+        ".ft-node",
+      ) as HTMLElement;
+      targetPath = targetNodeEl?.dataset.path ?? null;
+    }
 
     const position = this.dropPosition;
-    this.clearDropTarget();
-
-    // External file drop
-    if (
+    const isExternal =
       ((e.dataTransfer?.files && e.dataTransfer.files.length > 0) ||
         (e.dataTransfer?.items && e.dataTransfer.items.length > 0)) &&
-      this.draggedPaths.length === 0
-    ) {
+      this.draggedPaths.length === 0;
+    const isRootDrop = this.rootDrop;
+
+    this.clearDropTarget();
+
+    if (!targetPath && !isRootDrop) {
+      // No drop target was set — the drop happened outside any node.
+      this.cleanup();
+      return;
+    }
+
+    if (isExternal) {
       const files = e.dataTransfer.files;
       const items = e.dataTransfer.items; // for directories
       const entries = { files, items };
@@ -207,7 +308,7 @@ export class DragDrop {
     }
 
     if (this.draggedPaths.length > 0) {
-      this.callbacks.onMove(this.draggedPaths, targetPath, position);
+      this.callbacks.onMove(this.draggedPaths, targetPath ?? "", position);
     }
 
     this.cleanup();

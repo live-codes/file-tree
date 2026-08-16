@@ -269,6 +269,12 @@ load order.
     background: transparent;
   }
 
+  /* Empty tree space as a drop target (drop onto the root). */
+  .ft-tree--drop-root {
+    box-shadow: inset 0 0 0 2px var(--ft-drop-indicator);
+    border-radius: var(--ft-border-radius);
+  }
+
   .ft-drop-indicator {
     background: var(--ft-drop-indicator);
     border-radius: 1px;

@@ -1270,14 +1270,19 @@ export class FileTree {
     // Can't drop any dragged node into its own descendant.
     if (sourcePaths.some((s) => isDescendant(s, targetPath))) return;
 
-    const targetData = this.data.find((d) => d.path === targetPath);
-    if (!targetData) return;
-
+    // Empty target path means a drop on the tree root.
     let newParentPath: string;
-    if (position === "inside" && targetData.type === "folder") {
-      newParentPath = targetPath;
+    if (targetPath === "") {
+      newParentPath = "";
     } else {
-      newParentPath = getParentPath(targetPath);
+      const targetData = this.data.find((d) => d.path === targetPath);
+      if (!targetData) return;
+
+      if (position === "inside" && targetData.type === "folder") {
+        newParentPath = targetPath;
+      } else {
+        newParentPath = getParentPath(targetPath);
+      }
     }
 
     this.moveNodeInternal(sourcePaths, newParentPath);

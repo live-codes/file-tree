@@ -14,6 +14,12 @@ function makeNode(path: string, type: TestNode["type"]): InternalNode {
   const contentEl = document.createElement("div");
   contentEl.className = "ft-node__content";
   el.appendChild(contentEl);
+  const childrenEl =
+    type === "folder" ? document.createElement("div") : null;
+  if (childrenEl) {
+    childrenEl.className = "ft-node__children";
+    el.appendChild(childrenEl);
+  }
   return {
     path,
     parentPath: "",
@@ -23,7 +29,7 @@ function makeNode(path: string, type: TestNode["type"]): InternalNode {
     expanded: false,
     el,
     contentEl,
-    childrenEl: type === "folder" ? document.createElement("div") : null,
+    childrenEl,
     nameEl: contentEl,
     arrowEl: null,
     iconEl: contentEl,
@@ -54,11 +60,17 @@ afterEach(() => {
 /** Build a synthetic drag event with a DataTransfer (jsdom lacks DragEvent). */
 function dragEvent(
   type: string,
-  init: { clientY?: number; dataTransfer?: DataTransfer; target?: EventTarget | null } = {},
+  init: {
+    clientX?: number;
+    clientY?: number;
+    dataTransfer?: DataTransfer;
+    target?: EventTarget | null;
+  } = {},
 ): MouseEvent {
   const ev = new MouseEvent(type, {
     bubbles: true,
     cancelable: true,
+    clientX: init.clientX ?? 0,
     clientY: init.clientY ?? 10,
   });
   if (init.dataTransfer) {
@@ -168,6 +180,233 @@ describe("DragDrop", () => {
     const over = dragEvent("dragover", { dataTransfer: dt, clientY: 50 });
     Object.defineProperty(over, "target", { value: srcContent });
     treeEl.dispatchEvent(over);
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(onExternalDrop).toHaveBeenCalledWith(
+      { files: dt.files, items: dt.items },
+      "src",
+      "inside",
+    );
+  });
+
+  it("drops external files on the root when hovering empty tree space", () => {
+    const { treeEl, onExternalDrop } = setup();
+    const dt = new DataTransfer();
+    dt.addFile(new File(["x"], "root.png", { type: "image/png" }));
+    // Dragover the tree element itself (not a node).
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: treeEl });
+    treeEl.dispatchEvent(over);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(true);
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(onExternalDrop).toHaveBeenCalledWith(
+      { files: dt.files, items: dt.items },
+      null,
+      "inside",
+    );
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(false);
+  });
+
+  it("moves internal nodes to the root (empty path) when dropping on empty space", () => {
+    const { treeEl, nodeMap, onMove } = setup([
+      { path: "src", type: "folder" },
+      { path: "src/a.ts", type: "file" },
+    ]);
+    const dt = new DataTransfer();
+    const start = dragEvent("dragstart", { dataTransfer: dt });
+    Object.defineProperty(start, "target", { value: nodeMap.get("src/a.ts")!.el });
+    treeEl.dispatchEvent(start);
+
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: treeEl });
+    treeEl.dispatchEvent(over);
+
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(onMove).toHaveBeenCalledWith(["src/a.ts"], "", "inside");
+  });
+
+  it("clears the root drop state on dragend", () => {
+    const { treeEl } = setup();
+    const dt = new DataTransfer();
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: treeEl });
+    treeEl.dispatchEvent(over);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(true);
+    treeEl.dispatchEvent(dragEvent("dragend", { dataTransfer: dt }));
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(false);
+  });
+
+  it("clears the root drop state when the pointer leaves the tree", () => {
+    const { treeEl } = setup();
+    const dt = new DataTransfer();
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: treeEl });
+    treeEl.dispatchEvent(over);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(true);
+
+    // A dragleave with coordinates outside the tree bounds clears it.
+    treeEl.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 100, left: 0, right: 100 } as DOMRect);
+    const leave = dragEvent("dragleave", {
+      dataTransfer: dt,
+      clientX: 150,
+      clientY: 50,
+    });
+    Object.defineProperty(leave, "target", { value: treeEl });
+    treeEl.dispatchEvent(leave);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(false);
+  });
+
+  it("clears the root drop state when hovering a node afterwards", () => {
+    const { treeEl, nodeMap } = setup();
+    const dt = new DataTransfer();
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: treeEl });
+    treeEl.dispatchEvent(over);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(true);
+
+    // Now hover the src folder row: the root highlight must be replaced.
+    const srcContent = nodeMap.get("src")!.contentEl;
+    srcContent.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 100, height: 100, left: 0, right: 100, width: 100 } as DOMRect);
+    const overNode = dragEvent("dragover", { dataTransfer: dt, clientY: 50 });
+    Object.defineProperty(overNode, "target", { value: srcContent });
+    treeEl.dispatchEvent(overNode);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(false);
+    expect(srcContent.classList.contains("ft-node__content--drop-inside")).toBe(true);
+  });
+
+  it("highlights the folder when dragging over its expanded children area", () => {
+    const { treeEl, nodeMap } = setup([
+      { path: "src", type: "folder" },
+      { path: "src/a.ts", type: "file" },
+    ]);
+    const dt = new DataTransfer();
+    const start = dragEvent("dragstart", { dataTransfer: dt });
+    Object.defineProperty(start, "target", { value: nodeMap.get("src/a.ts")!.el });
+    treeEl.dispatchEvent(start);
+
+    // Hover the children container of the expanded folder.
+    const childrenEl = nodeMap.get("src")!.childrenEl!;
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: childrenEl });
+    treeEl.dispatchEvent(over);
+
+    const folderContent = nodeMap.get("src")!.contentEl;
+    expect(folderContent.classList.contains("ft-node__content--drop-inside")).toBe(true);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(false);
+  });
+
+  it("drops external files into an expanded folder via its children area", () => {
+    const { treeEl, nodeMap, onExternalDrop } = setup([
+      { path: "src", type: "folder" },
+      { path: "src/a.ts", type: "file" },
+    ]);
+    const dt = new DataTransfer();
+    dt.addFile(new File(["x"], "photo.png", { type: "image/png" }));
+    const childrenEl = nodeMap.get("src")!.childrenEl!;
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: childrenEl });
+    treeEl.dispatchEvent(over);
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(onExternalDrop).toHaveBeenCalledWith(
+      { files: dt.files, items: dt.items },
+      "src",
+      "inside",
+    );
+  });
+
+  it("moves internal nodes into an expanded folder via its children area", () => {
+    const { treeEl, nodeMap, onMove } = setup([
+      { path: "src", type: "folder" },
+      { path: "src/a.ts", type: "file" },
+      { path: "b.ts", type: "file" },
+    ]);
+    const dt = new DataTransfer();
+    const start = dragEvent("dragstart", { dataTransfer: dt });
+    Object.defineProperty(start, "target", { value: nodeMap.get("b.ts")!.el });
+    treeEl.dispatchEvent(start);
+    const childrenEl = nodeMap.get("src")!.childrenEl!;
+    const over = dragEvent("dragover", { dataTransfer: dt });
+    Object.defineProperty(over, "target", { value: childrenEl });
+    treeEl.dispatchEvent(over);
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(onMove).toHaveBeenCalledWith(["b.ts"], "src", "inside");
+  });
+
+  it("highlights the parent folder when hovering a child file row", () => {
+    const { treeEl, nodeMap } = setup([
+      { path: "src", type: "folder" },
+      { path: "src/a.ts", type: "file" },
+      { path: "b.ts", type: "file" },
+    ]);
+    // Nest the child file inside the folder's children container.
+    nodeMap.get("src")!.childrenEl!.appendChild(nodeMap.get("src/a.ts")!.el);
+
+    const dt = new DataTransfer();
+    const start = dragEvent("dragstart", { dataTransfer: dt });
+    Object.defineProperty(start, "target", { value: nodeMap.get("b.ts")!.el });
+    treeEl.dispatchEvent(start);
+
+    const childContent = nodeMap.get("src/a.ts")!.contentEl;
+    childContent.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 100, height: 100, left: 0, right: 100, width: 100 } as DOMRect);
+    const over = dragEvent("dragover", { dataTransfer: dt, clientY: 50 });
+    Object.defineProperty(over, "target", { value: childContent });
+    treeEl.dispatchEvent(over);
+
+    const folderContent = nodeMap.get("src")!.contentEl;
+    expect(folderContent.classList.contains("ft-node__content--drop-inside")).toBe(true);
+    expect(childContent.classList.contains("ft-node__content--drop-before")).toBe(false);
+    expect(childContent.classList.contains("ft-node__content--drop-after")).toBe(false);
+    expect(treeEl.classList.contains("ft-tree--drop-root")).toBe(false);
+  });
+
+  it("drops internal nodes into the parent folder when hovering a child file row", () => {
+    const { treeEl, nodeMap, onMove } = setup([
+      { path: "src", type: "folder" },
+      { path: "src/a.ts", type: "file" },
+      { path: "b.ts", type: "file" },
+    ]);
+    nodeMap.get("src")!.childrenEl!.appendChild(nodeMap.get("src/a.ts")!.el);
+
+    const dt = new DataTransfer();
+    const start = dragEvent("dragstart", { dataTransfer: dt });
+    Object.defineProperty(start, "target", { value: nodeMap.get("b.ts")!.el });
+    treeEl.dispatchEvent(start);
+
+    const childContent = nodeMap.get("src/a.ts")!.contentEl;
+    childContent.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 100, height: 100, left: 0, right: 100, width: 100 } as DOMRect);
+    const over = dragEvent("dragover", { dataTransfer: dt, clientY: 50 });
+    Object.defineProperty(over, "target", { value: childContent });
+    treeEl.dispatchEvent(over);
+
+    const drop = dragEvent("drop", { dataTransfer: dt });
+    treeEl.dispatchEvent(drop);
+    expect(onMove).toHaveBeenCalledWith(["b.ts"], "src", "inside");
+  });
+
+  it("drops external files into the parent folder when hovering a child file row", () => {
+    const { treeEl, nodeMap, onExternalDrop } = setup([
+      { path: "src", type: "folder" },
+      { path: "src/a.ts", type: "file" },
+    ]);
+    nodeMap.get("src")!.childrenEl!.appendChild(nodeMap.get("src/a.ts")!.el);
+
+    const dt = new DataTransfer();
+    dt.addFile(new File(["x"], "photo.png", { type: "image/png" }));
+    const childContent = nodeMap.get("src/a.ts")!.contentEl;
+    childContent.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 100, height: 100, left: 0, right: 100, width: 100 } as DOMRect);
+    const over = dragEvent("dragover", { dataTransfer: dt, clientY: 50 });
+    Object.defineProperty(over, "target", { value: childContent });
+    treeEl.dispatchEvent(over);
+
     const drop = dragEvent("drop", { dataTransfer: dt });
     treeEl.dispatchEvent(drop);
     expect(onExternalDrop).toHaveBeenCalledWith(
