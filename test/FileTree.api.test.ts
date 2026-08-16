@@ -331,6 +331,32 @@ describe("keyboard navigation", () => {
     expect(tree.getSelectedNodes()).toEqual([]);
     tree.destroy();
   });
+
+  it("selection change clears a stale focus ring from Ctrl+Arrow", () => {
+    const tree = createTree({ data: DATA });
+    tree.select("package.json");
+    keydown(tree, { key: "ArrowUp", ctrlKey: true }); // ring on src
+    expect(
+      nodeContentEl(tree, "src")!.classList.contains(
+        "ft-node__content--focused",
+      ),
+    ).toBe(true);
+    // Click another node → selection and focus move to it.
+    nodeContentEl(tree, "src/index.ts")!.dispatchEvent(
+      new MouseEvent("click", { bubbles: true }),
+    );
+    expect(
+      nodeContentEl(tree, "src")!.classList.contains(
+        "ft-node__content--focused",
+      ),
+    ).toBe(false);
+    expect(
+      nodeContentEl(tree, "src/index.ts")!.classList.contains(
+        "ft-node__content--focused",
+      ),
+    ).toBe(true);
+    tree.destroy();
+  });
 });
 
 describe("context menu actions", () => {

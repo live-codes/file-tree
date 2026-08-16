@@ -486,6 +486,9 @@ export class FileTree {
       );
       node.el.setAttribute("aria-selected", String(selected));
     });
+    // Re-sync the focus ring too: a selection change re-anchors focus, so
+    // any stale `--focused` ring from a previous Ctrl+Arrow must be cleared.
+    this.applyFocusRing();
   }
 
   private clearSelectionInternal(
