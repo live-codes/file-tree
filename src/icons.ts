@@ -111,6 +111,10 @@ export const pasteIcon = svg(
    <path d="M6 3V1.5h5V3M6.5 8l2 2 3-3.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`,
 );
 
+export const refreshIcon = svg(
+  `<path d="M13.5 8a5.5 5.5 0 11-1.61-3.89M13.5 5L12.89 1.55M13.5 5L10.05 5.61" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`,
+);
+
 // ── Icon Registry ───────────────────────────────────────────
 
 export const defaultIconMap: Record<string, string> = {

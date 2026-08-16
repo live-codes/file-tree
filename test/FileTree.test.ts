@@ -58,6 +58,78 @@ describe("FileTree constructor", () => {
     tree.destroy();
   });
 
+  it("appends custom toolbar buttons after built-ins by default", () => {
+    const tree = createTree({
+      toolbar: {
+        custom: [
+          { id: "refresh", label: "Refresh", onClick: () => {} },
+          { id: "info", label: "Info", onClick: () => {} },
+        ],
+      },
+    });
+    const titles = queryAll(rootOf(tree), ".ft-toolbar__btn").map(
+      (el) => el.title,
+    );
+    expect(titles).toEqual([
+      "New File",
+      "New Folder",
+      "Expand All",
+      "Collapse All",
+      "Refresh",
+      "Info",
+    ]);
+    tree.destroy();
+  });
+
+  it("orders custom toolbar buttons via order among built-ins", () => {
+    const tree = createTree({
+      toolbar: {
+        custom: [
+          { id: "info", label: "Info", onClick: () => {} },
+          {
+            id: "refresh",
+            label: "Refresh",
+            onClick: () => {},
+            order: 1, // third button: after New File + New Folder
+          },
+        ],
+      },
+    });
+    const titles = queryAll(rootOf(tree), ".ft-toolbar__btn").map(
+      (el) => el.title,
+    );
+    expect(titles).toEqual([
+      "New File",
+      "New Folder",
+      "Refresh",
+      "Expand All",
+      "Collapse All",
+      "Info",
+    ]);
+    tree.destroy();
+  });
+
+  it("orders custom buttons right after the first built-in with order 0", () => {
+    const tree = createTree({
+      toolbar: {
+        custom: [
+          { id: "refresh", label: "Refresh", onClick: () => {}, order: 0 },
+        ],
+      },
+    });
+    const titles = queryAll(rootOf(tree), ".ft-toolbar__btn").map(
+      (el) => el.title,
+    );
+    expect(titles).toEqual([
+      "New File",
+      "Refresh",
+      "New Folder",
+      "Expand All",
+      "Collapse All",
+    ]);
+    tree.destroy();
+  });
+
   it("does not create a DragDrop instance in readOnly mode", () => {
     const tree = createTree({ readOnly: true });
     expect(tree["dragDrop"]).toBeNull();

@@ -17,6 +17,14 @@ export interface ToolbarButton {
   icon?: string;
   title?: string;
   onClick: () => void;
+  /**
+   * Position of this button relative to the built-in toolbar buttons.
+   * Built-ins own fixed slots: `createFile`=0, `createFolder`=1,
+   * `expandAll`=2, `collapseAll`=3. `order: N` inserts the button after the
+   * built-in that owns slot N (e.g. `order: 1` makes it the third button).
+   * Omit to append after all built-ins in array order.
+   */
+  order?: number;
 }
 
 /** Configuration for a custom context menu item. */

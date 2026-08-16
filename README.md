@@ -1,6 +1,6 @@
 # @live-codes/file-tree
 
-A zero-dependency, framework-agnostic file tree component written in TypeScript. Features drag-and-drop, context menus, keyboard navigation, theming, and RTL support.
+A zero-dependency, framework-agnostic file tree component written in TypeScript. Features multiple selection, drag-and-drop, context menus, keyboard navigation, theming, i18n, and RTL support.
 
 For use in [LiveCodes](https://livecodes.io).
 
@@ -141,20 +141,20 @@ A few rules apply:
 
 ## Options
 
-| Option        | Type                          | Default   | Description                              |
-| ------------- | ----------------------------- | --------- | ---------------------------------------- |
-| `data`        | `FileTreeNodeData[]`          | `[]`      | Initial flat data array                  |
-| `selected`    | `string`                      | `''`      | Path of the initially selected node      |
-| `theme`       | `'light' \| 'dark'`           | `'dark'`  | Color theme                              |
-| `direction`   | `'ltr' \| 'rtl'`              | `'ltr'`   | Text direction                           |
-| `indent`      | `number`                      | `16`      | Pixels per indentation level             |
-| `dragAndDrop` | `boolean`                     | `true`    | Enable drag and drop                     |
-| `readOnly`    | `boolean`                     | `false`   | Disable all UI edits: keyboard shortcuts, context menu and drag & drop. Toolbar create buttons are hidden and double-click rename is disabled. Programmatic methods (`addNode`, `renameNode`, ...) still work |
-| `injectStyles` | `boolean`                    | `true`    | Inject the bundled CSS into `document.head` automatically. Set to `false` to manage styles manually (e.g. import `@live-codes/file-tree/styles.css`) |
-| `toolbar`     | `ToolbarOptions \| false`     | See below | Toolbar configuration                    |
-| `contextMenu` | `ContextMenuOptions \| false` | See below | Context menu configuration               |
-| `icons`       | `Record<string, string>`      | `{}`      | Custom file extension → SVG icon map     |
-| `sort`        | `boolean \| Comparator`       | `true`    | Sort nodes (folders first, alphabetical) |
+| Option         | Type                          | Default   | Description                                                                                                                                                                                                   |
+| -------------- | ----------------------------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data`         | `FileTreeNodeData[]`          | `[]`      | Initial flat data array                                                                                                                                                                                       |
+| `selected`     | `string`                      | `''`      | Path of the initially selected node                                                                                                                                                                           |
+| `theme`        | `'light' \| 'dark'`           | `'dark'`  | Color theme                                                                                                                                                                                                   |
+| `direction`    | `'ltr' \| 'rtl'`              | `'ltr'`   | Text direction                                                                                                                                                                                                |
+| `indent`       | `number`                      | `16`      | Pixels per indentation level                                                                                                                                                                                  |
+| `dragAndDrop`  | `boolean`                     | `true`    | Enable drag and drop                                                                                                                                                                                          |
+| `readOnly`     | `boolean`                     | `false`   | Disable all UI edits: keyboard shortcuts, context menu and drag & drop. Toolbar create buttons are hidden and double-click rename is disabled. Programmatic methods (`addNode`, `renameNode`, ...) still work |
+| `injectStyles` | `boolean`                     | `true`    | Inject the bundled CSS into `document.head` automatically. Set to `false` to manage styles manually (e.g. import `@live-codes/file-tree/styles.css`)                                                          |
+| `toolbar`      | `ToolbarOptions \| false`     | See below | Toolbar configuration                                                                                                                                                                                         |
+| `contextMenu`  | `ContextMenuOptions \| false` | See below | Context menu configuration                                                                                                                                                                                    |
+| `icons`        | `Record<string, string>`      | `{}`      | Custom file extension → SVG icon map                                                                                                                                                                          |
+| `sort`         | `boolean \| Comparator`       | `true`    | Sort nodes (folders first, alphabetical)                                                                                                                                                                      |
 
 ### ToolbarOptions
 
@@ -166,6 +166,63 @@ A few rules apply:
   collapseAll?: boolean;   // default: true
   custom?: ToolbarButton[];
 }
+```
+
+### Custom Toolbar Button
+
+```typescript
+interface ToolbarButton {
+  id: string;
+  label: string;
+  icon?: string; // SVG string
+  title?: string; // Tooltip
+  onClick: () => void;
+  order?: number; // Position among the built-in buttons
+}
+```
+
+Built-in buttons own fixed slots: `createFile`=0, `createFolder`=1, `expandAll`=2, `collapseAll`=3. `order: N` on a custom button inserts it after the built-in that owns slot N — so `order: 1` makes it the third button (after New File and New Folder). Custom buttons without `order` are appended after all built-ins in array order. Disabled built-ins simply leave their slot empty.
+
+```typescript
+new FileTree(container, {
+  toolbar: {
+    custom: [
+      {
+        id: "refresh",
+        label: "Refresh",
+        icon: icons.refreshIcon,
+        onClick: () => {},
+        order: 1,
+      },
+      {
+        id: "info",
+        label: "Info",
+        icon: icons.file,
+        onClick: () => {},
+        order: 3,
+      },
+    ],
+  },
+});
+```
+
+Two custom buttons with the same `order` sit next to each other and keep their array order — swap the array entries to reverse them:
+
+```typescript
+custom: [
+  { id: "info", label: "Info", onClick: () => {}, order: 1 },
+  { id: "refresh", label: "Refresh", onClick: () => {}, order: 1 },
+],
+// New File, New Folder, Info, Refresh, Expand All, Collapse All
+```
+
+`order` is just a sort key, so fractional values give you fine-grained control between any two buttons. To make a custom button the very first one, use a negative `order` (any built-in owns slot 0, so a value below 0 sorts before it):
+
+```typescript
+custom: [
+  { id: "favorite", label: "Favorite", icon: icons.folder, onClick: () => {}, order: -1 },
+],
+// Favorite, New File, New Folder, Expand All, Collapse All
 ```
 
 ### ContextMenuOptions
@@ -255,33 +312,33 @@ Custom toolbar buttons and context menu items are entirely user-supplied, so the
 
 ### Tree Navigation
 
-| Method                       | Description                                                              |
-| ---------------------------- | ------------------------------------------------------------------------ |
-| `expand(path)`               | Expand a folder                                                          |
-| `collapse(path)`             | Collapse a folder                                                        |
-| `expandAll()`                | Expand all folders                                                       |
-| `collapseAll()`              | Collapse all folders                                                     |
-| `select(path \| string[])`   | Select a node (or multiple nodes); parents are auto-expanded             |
-| `selectAll()`                | Select every node in the tree                                            |
-| `clearSelection()`           | Clear the current selection                                              |
-| `getSelectedNode()`          | Get the primary (first) selected node, or `null`                         |
-| `getSelectedNodes()`         | Get all currently selected nodes as an array                             |
+| Method                     | Description                                                  |
+| -------------------------- | ------------------------------------------------------------ |
+| `expand(path)`             | Expand a folder                                              |
+| `collapse(path)`           | Collapse a folder                                            |
+| `expandAll()`              | Expand all folders                                           |
+| `collapseAll()`            | Collapse all folders                                         |
+| `select(path \| string[])` | Select a node (or multiple nodes); parents are auto-expanded |
+| `selectAll()`              | Select every node in the tree                                |
+| `clearSelection()`         | Clear the current selection                                  |
+| `getSelectedNode()`        | Get the primary (first) selected node, or `null`             |
+| `getSelectedNodes()`       | Get all currently selected nodes as an array                 |
 
 ### Data Operations
 
-| Method                                   | Description                                                  |
-| ---------------------------------------- | ------------------------------------------------------------ |
-| `addNode(node)`                          | Add a node (parent folders auto-created from path)           |
-| `deleteNode(path \| string[])`            | Delete node(s) and their descendants; emits a cancellable `delete` event first (call `preventDefault()` to intercept, e.g. for a confirmation dialog) |
-| `removeNode(path \| string[])`           | Remove node(s) and their descendants (not cancellable)       |
-| `renameNode(path, newName)`              | Rename a node (changes only the last path segment; slashes in `newName` create intermediate folders on the fly) |
-| `moveNode(sourcePath \| string[], targetParentPath)` | Move node(s) to a new parent folder (`''` or `null` for root) |
-| `moveTo(oldPath, newPath)`                    | Move a node to an exact destination path, renaming it in the same step (combines `moveNode` + `renameNode`); missing intermediate folders are auto-created; returns `false` if invalid (conflict, or a folder moved inside itself) |
-| `copyNode(sourcePath \| string[], targetParentPath)` | Copy node(s) to a new parent folder (`''` or `null` for root); copying to the same location duplicates them with a ` copy` suffix before the extension (e.g. `index copy.ts`); returns the new path(s) |
-| `setData(data)`                          | Replace the entire tree                                      |
-| `getData()`                              | Get a clone of the flat data array                           |
-| `getNode(path)`                          | Get a single node by path                                    |
-| `getSelectedNode()`                      | Get the currently selected node                              |
+| Method                                               | Description                                                                                                                                                                                                                        |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `addNode(node)`                                      | Add a node (parent folders auto-created from path)                                                                                                                                                                                 |
+| `deleteNode(path \| string[])`                       | Delete node(s) and their descendants; emits a cancellable `delete` event first (call `preventDefault()` to intercept, e.g. for a confirmation dialog)                                                                              |
+| `removeNode(path \| string[])`                       | Remove node(s) and their descendants (not cancellable)                                                                                                                                                                             |
+| `renameNode(path, newName)`                          | Rename a node (changes only the last path segment; slashes in `newName` create intermediate folders on the fly)                                                                                                                    |
+| `moveNode(sourcePath \| string[], targetParentPath)` | Move node(s) to a new parent folder (`''` or `null` for root)                                                                                                                                                                      |
+| `moveTo(oldPath, newPath)`                           | Move a node to an exact destination path, renaming it in the same step (combines `moveNode` + `renameNode`); missing intermediate folders are auto-created; returns `false` if invalid (conflict, or a folder moved inside itself) |
+| `copyNode(sourcePath \| string[], targetParentPath)` | Copy node(s) to a new parent folder (`''` or `null` for root); copying to the same location duplicates them with a ` copy` suffix before the extension (e.g. `index copy.ts`); returns the new path(s)                             |
+| `setData(data)`                                      | Replace the entire tree                                                                                                                                                                                                            |
+| `getData()`                                          | Get a clone of the flat data array                                                                                                                                                                                                 |
+| `getNode(path)`                                      | Get a single node by path                                                                                                                                                                                                          |
+| `getSelectedNode()`                                  | Get the currently selected node                                                                                                                                                                                                    |
 
 ### Theme & Direction
 
@@ -354,22 +411,22 @@ tree.on("delete", (e) => {
 
 ## Keyboard Shortcuts
 
-| Key                     | Action                                       |
-| ----------------------- | -------------------------------------------- |
-| `↑` / `↓`               | Navigate between visible nodes               |
-| `Shift + ↑` / `↓`       | Extend selection by a range                  |
-| `Ctrl/Cmd + ↑` / `↓`    | Move focus without changing selection        |
-| `→`                     | Expand folder or move to first child         |
-| `←`                     | Collapse folder or move to parent            |
-| `Enter` / `Space`       | Toggle folder expand/collapse                |
-| `F2`                    | Rename selected node                         |
-| `Delete`                | Delete selected node(s)                      |
-| `Ctrl/Cmd + A`          | Select all nodes                             |
-| `Ctrl/Cmd + C`          | Copy selected node(s)                        |
-| `Ctrl/Cmd + X`          | Cut selected node(s)                         |
-| `Ctrl/Cmd + V`          | Paste clipboard into selected folder         |
-| `Ctrl/Cmd + Click`      | Toggle a node in the selection               |
-| `Shift + Click`         | Select a range from the anchor               |
+| Key                  | Action                                |
+| -------------------- | ------------------------------------- |
+| `↑` / `↓`            | Navigate between visible nodes        |
+| `Shift + ↑` / `↓`    | Extend selection by a range           |
+| `Ctrl/Cmd + ↑` / `↓` | Move focus without changing selection |
+| `→`                  | Expand folder or move to first child  |
+| `←`                  | Collapse folder or move to parent     |
+| `Enter` / `Space`    | Toggle folder expand/collapse         |
+| `F2`                 | Rename selected node                  |
+| `Delete`             | Delete selected node(s)               |
+| `Ctrl/Cmd + A`       | Select all nodes                      |
+| `Ctrl/Cmd + C`       | Copy selected node(s)                 |
+| `Ctrl/Cmd + X`       | Cut selected node(s)                  |
+| `Ctrl/Cmd + V`       | Paste clipboard into selected folder  |
+| `Ctrl/Cmd + Click`   | Toggle a node in the selection        |
+| `Shift + Click`      | Select a range from the anchor        |
 
 Operations (copy, cut, delete, move, drag) apply to **all** selected nodes. Dragging a selected node drags the whole selection. Right-clicking a node that is part of a multi-selection keeps the selection, so context-menu actions apply to all of it; right-clicking an unselected node replaces the selection.
 
@@ -448,6 +505,36 @@ import {
   getExtension, // "index.ts" → "ts"
 } from "@live-codes/file-tree";
 ```
+
+## Icons
+
+The icon set used internally by the tree is available under the `icons` namespace, so you can reuse the same SVG strings (for custom toolbar buttons, context-menu items, or anywhere else):
+
+```typescript
+import { icons } from "@live-codes/file-tree";
+
+icons.folder; // '<svg ...>...</svg>'
+icons.fileTs; // TypeScript file badge
+icons.newFile; // toolbar "new file" icon
+```
+
+All icons are `string` values — full `<svg>` markup that renders with `currentColor` where applicable.
+
+Available exports:
+
+| Name                               | Description                                                                                                                                                                 |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chevron`                          | Expand/collapse chevron                                                                                                                                                     |
+| `folder` / `folderOpen`            | Folder (closed / open)                                                                                                                                                      |
+| `file`                             | Generic file icon                                                                                                                                                           |
+| `fileTs`, `fileJs`, ...            | Per-extension file badges (ts, js, tsx, jsx, html, css, scss, json, md, yaml, svg, png, jpg, gif, webp, py, rb, rs, go, java, php, sh, sql, xml, toml, lock, env, vue, txt) |
+| `newFile`, `newFolder`             | Toolbar create buttons                                                                                                                                                      |
+| `expandAllIcon`, `collapseAllIcon` | Toolbar expand/collapse all                                                                                                                                                 |
+| `editIcon`, `trashIcon`            | Toolbar edit/delete                                                                                                                                                         |
+| `copyIcon`, `cutIcon`, `pasteIcon` | Clipboard action icons                                                                                                                                                      |
+| `refreshIcon`                      | Refresh / reload icon (circular arrow)                                                                                                                                      |
+| `defaultIconMap`                   | Extension → icon registry (used internally)                                                                                                                                 |
+| `defaultNameIconMap`               | Filename → icon registry (e.g. `README.md`)                                                                                                                                 |
 
 ## Browser Support
 

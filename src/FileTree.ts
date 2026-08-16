@@ -251,47 +251,64 @@ export class FileTree {
     tb.className = "ft-toolbar";
     const cfg = this.options.toolbar as ToolbarOptions;
 
+    // Built-in buttons occupy fixed slots so custom buttons can be
+    // interleaved via `order` (see ToolbarButton.order): createFile=0,
+    // createFolder=1, expandAll=2, collapseAll=3. Disabled built-ins simply
+    // leave their slot empty.
+    const buttons: Array<{ order: number; el: HTMLElement }> = [];
+
     if (cfg.createFile && !this.options.readOnly) {
-      tb.appendChild(
-        this.toolbarBtn(this.t("newFile"), newFile, () =>
+      buttons.push({
+        order: 0,
+        el: this.toolbarBtn(this.t("newFile"), newFile, () =>
           this.createNewNode("file"),
         ),
-      );
+      });
     }
     if (cfg.createFolder && !this.options.readOnly) {
-      tb.appendChild(
-        this.toolbarBtn(this.t("newFolder"), newFolder, () =>
+      buttons.push({
+        order: 1,
+        el: this.toolbarBtn(this.t("newFolder"), newFolder, () =>
           this.createNewNode("folder"),
         ),
-      );
+      });
     }
     if (cfg.expandAll) {
-      tb.appendChild(
-        this.toolbarBtn(this.t("expandAll"), expandAllIcon, () =>
+      buttons.push({
+        order: 2,
+        el: this.toolbarBtn(this.t("expandAll"), expandAllIcon, () =>
           this.expandAll(),
         ),
-      );
+      });
     }
     if (cfg.collapseAll) {
-      tb.appendChild(
-        this.toolbarBtn(this.t("collapseAll"), collapseAllIcon, () =>
+      buttons.push({
+        order: 3,
+        el: this.toolbarBtn(this.t("collapseAll"), collapseAllIcon, () =>
           this.collapseAll(),
         ),
-      );
+      });
     }
 
     if (cfg.custom) {
       for (const btn of cfg.custom) {
-        tb.appendChild(
-          this.toolbarBtn(
-            btn.title ?? btn.label,
-            btn.icon ?? "",
-            btn.onClick,
-            btn.id,
-          ),
+        const el = this.toolbarBtn(
+          btn.title ?? btn.label,
+          btn.icon ?? "",
+          btn.onClick,
+          btn.id,
         );
+        // `order` slots among the built-ins; otherwise append at the end,
+        // keeping the array order of custom buttons.
+        buttons.push({ order: btn.order ?? 4, el });
       }
     }
+
+    // Stable sort by order (built-ins keep their fixed slots; custom buttons
+    // with the same order as an existing built-in come after it).
+    buttons
+      .sort((a, b) => a.order - b.order)
+      .forEach(({ el }) => tb.appendChild(el));
 
     return tb;
   }
